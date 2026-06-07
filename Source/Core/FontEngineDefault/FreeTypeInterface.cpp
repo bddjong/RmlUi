@@ -63,7 +63,7 @@ bool FreeType::Initialise()
 
 void FreeType::Shutdown()
 {
-	FreeType::ClearMonochromeFontFamilies();
+	FreeType::ClearFontFamilyRasterizationPolicies();
 
 	if (ft_library != nullptr)
 	{
@@ -72,19 +72,25 @@ void FreeType::Shutdown()
 	}
 }
 
-void FreeType::ClearMonochromeFontFamilies()
+void FreeType::ClearFontFamilyRasterizationPolicies()
 {
 	GetMonochromeFontFamilies().clear();
 }
 
-void FreeType::AddMonochromeFontFamily(const String& font_family)
+void FreeType::SetFontFamilyRasterizationPolicy(const String& font_family, FontRasterizationPolicy policy)
 {
 	if (font_family.empty())
 		return;
 
 	Vector<String>& font_families = GetMonochromeFontFamilies();
-	if (std::find(font_families.begin(), font_families.end(), font_family) == font_families.end())
-		font_families.push_back(font_family);
+	auto it = std::find(font_families.begin(), font_families.end(), font_family);
+	if (policy == FontRasterizationPolicy::Monochrome)
+	{
+		if (it == font_families.end())
+			font_families.push_back(font_family);
+	}
+	else if (it != font_families.end())
+		font_families.erase(it);
 }
 
 bool FreeType::GetFaceVariations(Span<const byte> data, Vector<FaceVariation>& out_face_variations, int face_index)
@@ -198,7 +204,8 @@ void FreeType::GetFaceStyle(FontFaceHandleFreetype in_face, String* font_family,
 	}
 }
 
-bool FreeType::InitialiseFaceHandle(FontFaceHandleFreetype face, int font_size, FontGlyphMap& glyphs, FontMetrics& metrics, bool load_default_glyphs)
+bool FreeType::InitialiseFaceHandle(FontFaceHandleFreetype face, int font_size, FontGlyphMap& glyphs, FontMetrics& metrics, bool load_default_glyphs,
+	bool* out_rendered_glyphs_are_monochrome)
 {
 	FT_Face ft_face = (FT_Face)face;
 
@@ -207,6 +214,9 @@ bool FreeType::InitialiseFaceHandle(FontFaceHandleFreetype face, int font_size, 
 	float bitmap_scaling_factor = 1.0f;
 	if (!SetFontSize(ft_face, font_size, bitmap_scaling_factor))
 		return false;
+
+	if (out_rendered_glyphs_are_monochrome)
+		*out_rendered_glyphs_are_monochrome = ShouldRenderMonochromeGlyphs(ft_face) && bitmap_scaling_factor == 1.f;
 
 	// Construct the initial list of glyphs.
 	BuildGlyphMap(ft_face, font_size, glyphs, bitmap_scaling_factor, load_default_glyphs);

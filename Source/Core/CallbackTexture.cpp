@@ -24,12 +24,17 @@ CallbackTextureInterface::CallbackTextureInterface(RenderManager& render_manager
 
 bool CallbackTextureInterface::GenerateTexture(Span<const byte> source, Vector2i new_dimensions) const
 {
+	return GenerateTexture(source, new_dimensions, TextureSampling::Default);
+}
+
+bool CallbackTextureInterface::GenerateTexture(Span<const byte> source, Vector2i new_dimensions, TextureSampling sampling_hint) const
+{
 	if (texture_handle)
 	{
 		RMLUI_ERRORMSG("Texture already set");
 		return false;
 	}
-	texture_handle = render_interface.GenerateTexture(source, new_dimensions);
+	texture_handle = render_interface.GenerateTexture(source, new_dimensions, sampling_hint);
 	if (texture_handle)
 		dimensions = new_dimensions;
 	return texture_handle != TextureHandle{};

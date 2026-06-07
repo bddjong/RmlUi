@@ -58,6 +58,12 @@ public:
 	virtual bool LoadFontFace(Span<const byte> data, int face_index, const String& family, Style::FontStyle style, Style::FontWeight weight,
 		bool fallback_face);
 
+	/// Called by RmlUi when the application configures how a font family should be rasterized.
+	virtual void SetFontFamilyRasterizationPolicy(const String& family, FontRasterizationPolicy policy);
+
+	/// Called by RmlUi when the application clears configured font-family rasterization policies.
+	virtual void ClearFontFamilyRasterizationPolicies();
+
 	/// Called by RmlUi when a font configuration is resolved for an element. Should return a handle that
 	/// can later be used to resolve properties of the face, and generate string geometry to be rendered.
 	/// @param[in] family The family of the desired font handle.

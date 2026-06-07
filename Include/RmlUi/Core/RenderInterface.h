@@ -57,6 +57,12 @@ public:
 	/// @param[in] source_dimensions The dimensions, in pixels, of the source data.
 	/// @return An application-specified handle identifying the texture, or zero if it could not be generated.
 	virtual TextureHandle GenerateTexture(Span<const byte> source, Vector2i source_dimensions) = 0;
+	/// Called by RmlUi when a texture is required to be generated from a sequence of pixels in memory, along with a sampling hint.
+	/// @param[in] source The raw texture data. Each pixel is made up of four 8-bit values, red, green, blue, and premultiplied alpha, in that order.
+	/// @param[in] source_dimensions The dimensions, in pixels, of the source data.
+	/// @param[in] sampling_hint A hint describing the preferred texture sampling mode.
+	/// @return An application-specified handle identifying the texture, or zero if it could not be generated.
+	virtual TextureHandle GenerateTexture(Span<const byte> source, Vector2i source_dimensions, TextureSampling sampling_hint);
 	/// Called by RmlUi when a loaded or generated texture is no longer required.
 	/// @param[in] texture The texture handle to release.
 	virtual void ReleaseTexture(TextureHandle texture) = 0;

@@ -23,6 +23,10 @@ public:
 	bool LoadFontFace(Span<const byte> data, int face_index, const String& font_family, Style::FontStyle style, Style::FontWeight weight,
 		bool fallback_face) override;
 
+	void SetFontFamilyRasterizationPolicy(const String& family, FontRasterizationPolicy policy) override;
+
+	void ClearFontFamilyRasterizationPolicies() override;
+
 	/// Returns a handle to a font face that can be used to position and render text. This will return the closest match
 	/// it can find, but in the event a font family is requested that does not exist, NULL will be returned instead of a
 	/// valid handle.

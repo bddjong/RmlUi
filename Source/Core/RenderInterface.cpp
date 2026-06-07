@@ -23,6 +23,11 @@ void RenderInterface::RenderToClipMask(ClipMaskOperation /*operation*/, Compiled
 
 void RenderInterface::SetTransform(const Matrix4f* /*transform*/) {}
 
+TextureHandle RenderInterface::GenerateTexture(Span<const byte> source, Vector2i source_dimensions, TextureSampling /*sampling_hint*/)
+{
+	return GenerateTexture(source, source_dimensions);
+}
+
 LayerHandle RenderInterface::PushLayer()
 {
 	return {};

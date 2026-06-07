@@ -24,6 +24,8 @@ public:
 
 	const FontGlyphMap& GetGlyphs() const;
 
+	TextureSampling GetTextureSampling() const;
+
 	/// Returns the width a string will take up if rendered with this handle.
 	/// @param[in] string The string to measure.
 	/// @param[in] text_shaping_context Extra parameters that provide context for text shaping.
@@ -111,6 +113,7 @@ private:
 	using KerningIntType = int16_t;
 	using KerningPairs = UnorderedMap<AsciiPair, KerningIntType>;
 	KerningPairs kerning_pair_cache;
+	bool rendered_glyphs_are_monochrome = false;
 
 	bool has_kerning = false;
 	bool is_layers_dirty = false;

@@ -46,6 +46,10 @@ public:
 	static bool LoadFontFace(Span<const byte> data, int face_index, const String& font_family, Style::FontStyle style, Style::FontWeight weight,
 		bool fallback_face);
 
+	static void SetFontFamilyRasterizationPolicy(const String& family, FontRasterizationPolicy policy);
+
+	static void ClearFontFamilyRasterizationPolicies();
+
 	/// Return the number of fallback font faces.
 	static int CountFallbackFontFaces();
 

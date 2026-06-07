@@ -121,6 +121,16 @@ bool FontProvider::LoadFontFace(Span<const byte> data, int face_index, const Str
 	return result;
 }
 
+void FontProvider::SetFontFamilyRasterizationPolicy(const String& family, FontRasterizationPolicy policy)
+{
+	FreeType::SetFontFamilyRasterizationPolicy(family, policy);
+}
+
+void FontProvider::ClearFontFamilyRasterizationPolicies()
+{
+	FreeType::ClearFontFamilyRasterizationPolicies();
+}
+
 bool FontProvider::LoadFontFace(Span<const byte> data, int face_index, bool fallback_face, UniquePtr<byte[]> face_memory, const String& source,
 	String font_family, Style::FontStyle style, Style::FontWeight weight)
 {

@@ -28,6 +28,10 @@ bool FontEngineInterface::LoadFontFace(Span<const byte> /*data*/, int /*face_ind
 	return false;
 }
 
+void FontEngineInterface::SetFontFamilyRasterizationPolicy(const String& /*family*/, FontRasterizationPolicy /*policy*/) {}
+
+void FontEngineInterface::ClearFontFamilyRasterizationPolicies() {}
+
 FontFaceHandle FontEngineInterface::GetFontFaceHandle(const String& /*family*/, Style::FontStyle /*style*/, Style::FontWeight /*weight*/,
 	int /*size*/)
 {

@@ -33,7 +33,7 @@ bool FontFaceHandleDefault::Initialize(FontFaceHandleFreetype face, int font_siz
 
 	RMLUI_ASSERTMSG(layer_configurations.empty(), "Initialize must only be called once.");
 
-	if (!FreeType::InitialiseFaceHandle(ft_face, font_size, glyphs, metrics, load_default_glyphs))
+	if (!FreeType::InitialiseFaceHandle(ft_face, font_size, glyphs, metrics, load_default_glyphs, &rendered_glyphs_are_monochrome))
 		return false;
 
 	has_kerning = FreeType::HasKerning(ft_face);
@@ -54,6 +54,11 @@ const FontMetrics& FontFaceHandleDefault::GetFontMetrics() const
 const FontGlyphMap& FontFaceHandleDefault::GetGlyphs() const
 {
 	return glyphs;
+}
+
+TextureSampling FontFaceHandleDefault::GetTextureSampling() const
+{
+	return rendered_glyphs_are_monochrome ? TextureSampling::Nearest : TextureSampling::Linear;
 }
 
 int FontFaceHandleDefault::GetStringWidth(StringView string, const TextShapingContext& text_shaping_context, Character prior_character)

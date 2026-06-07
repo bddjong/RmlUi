@@ -134,6 +134,14 @@ RMLUICORE_API bool LoadFontFace(const String& file_path, const String& family, S
 RMLUICORE_API bool LoadFontFace(Span<const byte> data, const String& family, Style::FontStyle style,
 	Style::FontWeight weight = Style::FontWeight::Auto, bool fallback_face = false, int face_index = 0);
 
+/// Sets the rasterization policy for a font family in the active font engine.
+/// @param[in] family The font family to configure.
+/// @param[in] policy The rasterization policy to apply for the family.
+RMLUICORE_API void SetFontFamilyRasterizationPolicy(const String& family, FontRasterizationPolicy policy);
+
+/// Clears any font-family rasterization policies previously configured in the active font engine.
+RMLUICORE_API void ClearFontFamilyRasterizationPolicies();
+
 /// Registers a generic RmlUi plugin.
 RMLUICORE_API void RegisterPlugin(Plugin* plugin);
 

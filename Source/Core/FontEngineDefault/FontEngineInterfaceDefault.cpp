@@ -32,6 +32,16 @@ bool FontEngineInterfaceDefault::LoadFontFace(Span<const byte> data, int face_in
 	return FontProvider::LoadFontFace(data, face_index, font_family, style, weight, fallback_face);
 }
 
+void FontEngineInterfaceDefault::SetFontFamilyRasterizationPolicy(const String& family, FontRasterizationPolicy policy)
+{
+	FontProvider::SetFontFamilyRasterizationPolicy(family, policy);
+}
+
+void FontEngineInterfaceDefault::ClearFontFamilyRasterizationPolicies()
+{
+	FontProvider::ClearFontFamilyRasterizationPolicies();
+}
+
 FontFaceHandle FontEngineInterfaceDefault::GetFontFaceHandle(const String& family, Style::FontStyle style, Style::FontWeight weight, int size)
 {
 	auto handle = FontProvider::GetFontFaceHandle(family, style, weight, size);

@@ -50,6 +50,12 @@ public:
 	/// @param[in] dimensions The width and height of the texture.
 	/// @return True on success.
 	bool GenerateTexture(Span<const byte> source, Vector2i dimensions) const;
+	/// Generate texture from byte source with a sampling hint.
+	/// @param[in] source Texture data in 8-bit RGBA (premultiplied) format.
+	/// @param[in] dimensions The width and height of the texture.
+	/// @param[in] sampling_hint A hint describing the preferred texture sampling mode.
+	/// @return True on success.
+	bool GenerateTexture(Span<const byte> source, Vector2i dimensions, TextureSampling sampling_hint) const;
 
 	/// Store the current layer as a texture, so that it can be rendered with geometry later.
 	/// @note The texture will be extracted using the bounds defined by the active scissor region, thereby matching its size.

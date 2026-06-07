@@ -347,6 +347,16 @@ bool LoadFontFace(Span<const byte> data, const String& family, Style::FontStyle 
 	return font_interface->LoadFontFace(data, face_index, family, style, weight, fallback_face);
 }
 
+void SetFontFamilyRasterizationPolicy(const String& family, FontRasterizationPolicy policy)
+{
+	font_interface->SetFontFamilyRasterizationPolicy(family, policy);
+}
+
+void ClearFontFamilyRasterizationPolicies()
+{
+	font_interface->ClearFontFamilyRasterizationPolicies();
+}
+
 void RegisterPlugin(Plugin* plugin)
 {
 	if (initialised)

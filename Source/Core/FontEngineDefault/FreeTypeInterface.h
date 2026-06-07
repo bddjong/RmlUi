@@ -12,11 +12,11 @@ namespace FreeType {
 	// Shutdown FreeType library.
 	void Shutdown();
 
-	// Clears all font families configured for monochrome glyph rendering.
-	void ClearMonochromeFontFamilies();
+	// Clears any configured font-family rasterization policies.
+	void ClearFontFamilyRasterizationPolicies();
 
-	// Adds a font family whose glyphs should render in monochrome mode when possible.
-	void AddMonochromeFontFamily(const String& font_family);
+	// Configures how a font family should be rasterized.
+	void SetFontFamilyRasterizationPolicy(const String& font_family, FontRasterizationPolicy policy);
 
 	// Returns a sorted list of available font variations for the font face located in memory.
 	bool GetFaceVariations(Span<const byte> data, Vector<FaceVariation>& out_face_variations, int face_index);
@@ -31,7 +31,8 @@ namespace FreeType {
 	void GetFaceStyle(FontFaceHandleFreetype face, String* font_family, Style::FontStyle* style, Style::FontWeight* weight);
 
 	// Initializes a face for a given font size. Glyphs are filled with the ASCII subset, and the font face metrics are set.
-	bool InitialiseFaceHandle(FontFaceHandleFreetype face, int font_size, FontGlyphMap& glyphs, FontMetrics& metrics, bool load_default_glyphs);
+	bool InitialiseFaceHandle(FontFaceHandleFreetype face, int font_size, FontGlyphMap& glyphs, FontMetrics& metrics, bool load_default_glyphs,
+		bool* out_rendered_glyphs_are_monochrome = nullptr);
 
 	// Build a new glyph representing the given code point and append to 'glyphs'.
 	bool AppendGlyph(FontFaceHandleFreetype face, int font_size, Character character, FontGlyphMap& glyphs);
