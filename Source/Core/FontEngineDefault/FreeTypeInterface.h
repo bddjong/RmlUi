@@ -12,6 +12,12 @@ namespace FreeType {
 	// Shutdown FreeType library.
 	void Shutdown();
 
+	// Clears all font families configured for monochrome glyph rendering.
+	void ClearMonochromeFontFamilies();
+
+	// Adds a font family whose glyphs should render in monochrome mode when possible.
+	void AddMonochromeFontFamily(const String& font_family);
+
 	// Returns a sorted list of available font variations for the font face located in memory.
 	bool GetFaceVariations(Span<const byte> data, Vector<FaceVariation>& out_face_variations, int face_index);
 

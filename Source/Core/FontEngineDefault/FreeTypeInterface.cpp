@@ -17,6 +17,7 @@ static FT_Library ft_library = nullptr;
 static bool BuildGlyph(FT_Face ft_face, Character character, FontGlyphMap& glyphs, float bitmap_scaling_factor);
 static void BuildGlyphMap(FT_Face ft_face, int size, FontGlyphMap& glyphs, float bitmap_scaling_factor, bool load_default_glyphs);
 static void GenerateMetrics(FT_Face ft_face, FontMetrics& metrics, float bitmap_scaling_factor);
+static bool ShouldRenderMonochromeGlyphs(FT_Face ft_face);
 static bool SetFontSize(FT_Face ft_face, int font_size, float& out_bitmap_scaling_factor);
 static void BitmapDownscale(byte* bitmap_new, int new_width, int new_height, const byte* bitmap_source, int width, int height, int pitch,
 	ColorFormat color_format);
@@ -24,6 +25,12 @@ static void BitmapDownscale(byte* bitmap_new, int new_width, int new_height, con
 static int ConvertFixed16_16ToInt(int32_t fx)
 {
 	return fx / 0x10000;
+}
+
+static Vector<String>& GetMonochromeFontFamilies()
+{
+	static Vector<String> monochrome_font_families;
+	return monochrome_font_families;
 }
 
 bool FreeType::Initialise()
@@ -43,11 +50,28 @@ bool FreeType::Initialise()
 
 void FreeType::Shutdown()
 {
+	FreeType::ClearMonochromeFontFamilies();
+
 	if (ft_library != nullptr)
 	{
 		FT_Done_FreeType(ft_library);
 		ft_library = nullptr;
 	}
+}
+
+void FreeType::ClearMonochromeFontFamilies()
+{
+	GetMonochromeFontFamilies().clear();
+}
+
+void FreeType::AddMonochromeFontFamily(const String& font_family)
+{
+	if (font_family.empty())
+		return;
+
+	Vector<String>& font_families = GetMonochromeFontFamilies();
+	if (std::find(font_families.begin(), font_families.end(), font_family) == font_families.end())
+		font_families.push_back(font_family);
 }
 
 bool FreeType::GetFaceVariations(Span<const byte> data, Vector<FaceVariation>& out_face_variations, int face_index)
@@ -266,7 +290,7 @@ static void BuildGlyphMap(FT_Face ft_face, int size, FontGlyphMap& glyphs, const
 				constexpr int stroke = 1;
 				int i = y * glyph.bitmap_dimensions.x + x;
 				bool near_edge = (x < stroke || x >= glyph.bitmap_dimensions.x - stroke || y < stroke || y >= glyph.bitmap_dimensions.y - stroke);
-				glyph.bitmap_owned_data[i] = (near_edge ? 0xdd : 0);
+				glyph.bitmap_owned_data[i] = (near_edge ? 0xff : 0);
 			}
 		}
 
@@ -280,7 +304,11 @@ static bool BuildGlyph(FT_Face ft_face, const Character character, FontGlyphMap&
 	if (index == 0)
 		return false;
 
-	FT_Error error = FT_Load_Glyph(ft_face, index, FT_LOAD_COLOR);
+	const bool render_monochrome = ShouldRenderMonochromeGlyphs(ft_face) && bitmap_scaling_factor == 1.f;
+	const FT_Int32 load_flags = render_monochrome ? FT_LOAD_TARGET_MONO : FT_LOAD_COLOR;
+	const FT_Render_Mode render_mode = render_monochrome ? FT_RENDER_MODE_MONO : FT_RENDER_MODE_NORMAL;
+
+	FT_Error error = FT_Load_Glyph(ft_face, index, load_flags);
 	if (error != 0)
 	{
 		Log::Message(Log::LT_WARNING, "Unable to load glyph for character '%u' on the font face '%s %s'; error code: %d.", (unsigned int)character,
@@ -288,7 +316,7 @@ static bool BuildGlyph(FT_Face ft_face, const Character character, FontGlyphMap&
 		return false;
 	}
 
-	error = FT_Render_Glyph(ft_face->glyph, FT_RENDER_MODE_NORMAL);
+	error = FT_Render_Glyph(ft_face->glyph, render_mode);
 	if (error != 0)
 	{
 		Log::Message(Log::LT_WARNING, "Unable to render glyph for character '%u' on the font face '%s %s'; error code: %d.", (unsigned int)character,
@@ -495,6 +523,15 @@ static bool SetFontSize(FT_Face ft_face, int font_size, float& out_bitmap_scalin
 	}
 
 	return true;
+}
+
+static bool ShouldRenderMonochromeGlyphs(FT_Face ft_face)
+{
+	if (!ft_face || !ft_face->family_name)
+		return false;
+
+	const Vector<String>& font_families = GetMonochromeFontFamilies();
+	return std::find(font_families.begin(), font_families.end(), ft_face->family_name) != font_families.end();
 }
 
 static void BitmapDownscale(byte* bitmap_new, const int new_width, const int new_height, const byte* bitmap_source, const int width, const int height,
