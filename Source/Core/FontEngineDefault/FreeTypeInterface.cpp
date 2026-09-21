@@ -101,6 +101,10 @@ bool FreeType::GetFaceVariations(Span<const byte> data, Vector<FaceVariation>& o
 	FT_Error error = FT_New_Memory_Face(ft_library, static_cast<const FT_Byte*>(data.data()), static_cast<FT_Long>(data.size()), face_index, &face);
 	if (error)
 		return false;
+	struct FaceGuard {
+		FT_Face face;
+		~FaceGuard() { if (face != nullptr) FT_Done_Face(face); }
+	} face_guard{face};
 
 	FT_MM_Var* var = nullptr;
 	error = FT_Get_MM_Var(face, &var);
@@ -142,8 +146,6 @@ bool FreeType::GetFaceVariations(Span<const byte> data, Vector<FaceVariation>& o
 #if FREETYPE_MAJOR >= 2 && FREETYPE_MINOR >= 9
 	FT_Done_MM_Var(ft_library, var);
 #endif
-
-	FT_Done_Face(face);
 
 	return true;
 }
