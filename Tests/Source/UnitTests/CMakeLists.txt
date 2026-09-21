@@ -3,6 +3,7 @@ set(TARGET_NAME "rmlui_unit_tests")
 add_executable(${TARGET_NAME}
 	Animation.cpp
 	Core.cpp
+	CustomProperties.cpp
 	DataBinding.cpp
 	DataExpression.cpp
 	DataModel.cpp
@@ -12,6 +13,7 @@ add_executable(${TARGET_NAME}
 	ElementBackgroundBorder.cpp
 	ElementDocument.cpp
 	ElementHandle.cpp
+	ElementFormControlInput.cpp
 	ElementFormControlSelect.cpp
 	ElementImage.cpp
 	ElementStyle.cpp

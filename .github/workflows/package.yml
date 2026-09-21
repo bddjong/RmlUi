@@ -14,7 +14,7 @@ jobs:
         build_type: [Debug, Release]
 
     env:
-      GENERATOR: Visual Studio 17 2022
+      GENERATOR: Visual Studio 18 2026
       VCPKG_DEFAULT_TRIPLET: ${{ matrix.architecture == 'win32' && 'x86' || 'x64' }}-${{ matrix.library_linkage == 'Dynamic' && 'windows' || 'windows-static-md' }}
 
     steps:
@@ -70,7 +70,7 @@ jobs:
         architecture: [win32, win64]
 
     env:
-      GENERATOR: Visual Studio 17 2022
+      GENERATOR: Visual Studio 18 2026
       VCPKG_DEFAULT_TRIPLET: ${{ matrix.architecture == 'win32' && 'x86' || 'x64' }}-windows${{ matrix.architecture == 'win64' && '-release' || '' }}
 
     steps:
@@ -88,7 +88,7 @@ jobs:
           echo "Using vcpkg triplet: $env:VCPKG_DEFAULT_TRIPLET"
           C:\vcpkg\vcpkg install glfw3[core] freetype[core] lua[core] lunasvg[core]
           cd Dependencies\rlottie
-          cmake -B build -G "$env:GENERATOR" -A ${{ matrix.architecture == 'win32' && 'Win32' || 'x64' }} -DBUILD_SHARED_LIBS=ON -DLOTTIE_MODULE=OFF
+          cmake -B build -G "$env:GENERATOR" -A ${{ matrix.architecture == 'win32' && 'Win32' || 'x64' }} -DBUILD_SHARED_LIBS=ON -DLOTTIE_MODULE=OFF -DCMAKE_POLICY_VERSION_MINIMUM="3.5"
           cmake --build build --target rlottie --config Release -- "/clp:ErrorsOnly"
 
       - name: Configure CMake
@@ -179,7 +179,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: RmlUi-vs2022-${{ matrix.architecture }}
+          name: RmlUi-vs2026-${{ matrix.architecture }}
           path: ./
 
   Release:
@@ -191,7 +191,7 @@ jobs:
     steps:
       - name: Download release artifacts
         run: |
-          $release_artifacts = "RmlUi-vs2022-win64", "RmlUi-vs2022-win32", "samples-win64"
+          $release_artifacts = "RmlUi-vs2026-win64", "RmlUi-vs2026-win32", "samples-win64"
           $headers = @{ "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}" }
           $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/artifacts" -Headers $headers
           foreach ($name in $release_artifacts) {

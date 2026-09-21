@@ -16,6 +16,7 @@
 #include "../../../Include/RmlUi/Core/TextInputContext.h"
 #include "../../../Include/RmlUi/Core/TextInputHandler.h"
 #include "../Clock.h"
+#include "../ElementStyle.h"
 #include "ElementTextSelection.h"
 #include <algorithm>
 #include <limits.h>
@@ -157,6 +158,7 @@ void WidgetTextInputContext::CommitComposition(StringView composition)
 WidgetTextInput::WidgetTextInput(ElementFormControl* _parent)
 {
 	keyboard_showed = false;
+	lines = {Line{}};
 
 	parent = _parent;
 	parent->SetProperty(PropertyId::WhiteSpace, Property(Style::WhiteSpace::Pre));
@@ -397,7 +399,7 @@ void WidgetTextInput::UpdateSelectionColours()
 	// Determine what the colour of the selected text is. If our 'selection' element has the 'color'
 	// attribute set, then use that. Otherwise, use the inverse of our own text colour.
 	Colourb colour;
-	const Property* colour_property = selection_element->GetLocalProperty(PropertyId::Color);
+	const Property* colour_property = selection_element->GetStyle()->GetLocalPropertyWithResolvedVariables(PropertyId::Color);
 	if (colour_property)
 		colour = colour_property->Get<Colourb>();
 	else
@@ -414,7 +416,7 @@ void WidgetTextInput::UpdateSelectionColours()
 	// If the 'background-color' property has been set on the 'selection' element, use that as the
 	// background colour for the selected text. Otherwise, use the inverse of the selected text
 	// colour.
-	colour_property = selection_element->GetLocalProperty(PropertyId::BackgroundColor);
+	colour_property = selection_element->GetStyle()->GetLocalPropertyWithResolvedVariables(PropertyId::BackgroundColor);
 	if (colour_property)
 		colour = colour_property->Get<Colourb>();
 	else
@@ -1430,13 +1432,11 @@ void WidgetTextInput::GenerateCursor()
 	cursor_size.x = Math::Round(ElementUtilities::GetDensityIndependentPixelRatio(text_element));
 	cursor_size.y = GetLineHeight();
 
-	Colourb color = parent->GetComputedValues().color();
-
-	if (const Property* property = parent->GetProperty(PropertyId::CaretColor))
-	{
-		if (property->unit == Unit::COLOUR)
-			color = property->Get<Colourb>();
-	}
+	Colourb color;
+	if (const Property* property = parent->GetProperty(PropertyId::CaretColor); property && property->unit == Unit::COLOUR)
+		color = property->Get<Colourb>();
+	else
+		color = parent->GetComputedValues().color();
 
 	Mesh mesh = cursor_geometry.Release(Geometry::ReleaseMode::ClearMesh);
 	MeshUtilities::GenerateQuad(mesh, Vector2f(0, 0), cursor_size, color.ToPremultiplied());
@@ -1618,6 +1618,8 @@ void WidgetTextInput::SetKeyboardActive(bool active)
 	{
 		system->DeactivateKeyboard();
 	}
+
+	keyboard_showed = active;
 }
 
 float WidgetTextInput::GetLineHeight() const

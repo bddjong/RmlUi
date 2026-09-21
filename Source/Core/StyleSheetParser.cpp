@@ -10,6 +10,7 @@
 #include "../../Include/RmlUi/Core/StyleSheet.h"
 #include "../../Include/RmlUi/Core/StyleSheetContainer.h"
 #include "../../Include/RmlUi/Core/StyleSheetSpecification.h"
+#include "../../Include/RmlUi/Core/SystemInterface.h"
 #include "ComputeProperty.h"
 #include "ControlledLifetimeResource.h"
 #include "StyleSheetFactory.h"
@@ -408,7 +409,7 @@ bool StyleSheetParser::ParseKeyframeBlock(KeyframesMap& keyframes_map, const Str
 		Log::Message(Log::LT_WARNING, "Invalid keyframes identifier '%s' at %s:%d", identifier.c_str(), stream_file_name.c_str(), line_number);
 		return false;
 	}
-	if (properties.GetNumProperties() == 0)
+	if (properties.Empty())
 		return true;
 
 	StringList rule_list;
@@ -558,7 +559,9 @@ bool StyleSheetParser::ParseFontFaceBlock(const SharedPtr<const PropertySource>&
 
 	for (const String& src : font_face_property_parser.sources)
 	{
-		Rml::LoadFontFace(src, family, style, weight, is_fallback, face_index);
+		String joined_src_path;
+		GetSystemInterface()->JoinPath(joined_src_path, source->path, src);
+		Rml::LoadFontFace(joined_src_path, family, style, weight, is_fallback, face_index);
 	}
 
 	return true;
@@ -619,7 +622,7 @@ bool StyleSheetParser::ParseMediaFeatureMap(const String& rules, PropertyDiction
 			current_string = StringUtilities::StripWhitespace(StringUtilities::ToLower(std::move(current_string)));
 
 			// allow an empty string to pass through only if we had just parsed a modifier.
-			if (current_string != "and" && (properties.GetNumProperties() != 0 || !current_string.empty()))
+			if (current_string != "and" && (!properties.Empty() || !current_string.empty()))
 			{
 				Log::Message(Log::LT_WARNING, "Unexpected '%s' in @media query list at %s:%d. Expected 'and'.", current_string.c_str(),
 					stream_file_name.c_str(), line_number);
@@ -675,7 +678,7 @@ bool StyleSheetParser::ParseMediaFeatureMap(const String& rules, PropertyDiction
 		}
 	}
 
-	if (properties.GetNumProperties() == 0)
+	if (properties.Empty())
 	{
 		Log::Message(Log::LT_WARNING, "Media query list parsing yielded no properties at %s:%d.", stream_file_name.c_str(), line_number);
 	}
