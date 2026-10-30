@@ -2,6 +2,8 @@ set(TARGET_NAME "rmlui_unit_tests")
 
 add_executable(${TARGET_NAME}
 	Animation.cpp
+	BoxShadow.cpp
+	Colour.cpp
 	Core.cpp
 	CustomProperties.cpp
 	DataBinding.cpp
