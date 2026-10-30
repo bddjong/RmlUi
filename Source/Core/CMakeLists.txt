@@ -79,6 +79,7 @@ add_library(rmlui_core
 	ElementStyle.cpp
 	ElementStyle.h
 	ElementText.cpp
+	TextParagraph.cpp
 	ElementUtilities.cpp
 	Event.cpp
 	EventDispatcher.cpp
@@ -358,6 +359,12 @@ target_sources(rmlui_core PRIVATE
 set_common_target_options(rmlui_core)
 
 target_include_directories(rmlui_core PRIVATE "${PROJECT_SOURCE_DIR}/Include")
+target_sources(rmlui_core PRIVATE "${PROJECT_SOURCE_DIR}/Dependencies/SheenBidi/Source/SheenBidi.c")
+set_source_files_properties("${PROJECT_SOURCE_DIR}/Dependencies/SheenBidi/Source/SheenBidi.c" PROPERTIES COMPILE_DEFINITIONS SB_CONFIG_UNITY)
+if(CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+	set_source_files_properties("${PROJECT_SOURCE_DIR}/Dependencies/SheenBidi/Source/SheenBidi.c" PROPERTIES COMPILE_OPTIONS "-Wno-unused-function;-Wno-unused-parameter")
+endif()
+target_include_directories(rmlui_core PRIVATE "${PROJECT_SOURCE_DIR}/Dependencies/SheenBidi/Headers" "${PROJECT_SOURCE_DIR}/Dependencies/SheenBidi/Source")
 target_include_directories(rmlui_core INTERFACE
 	"$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Include>"
 	"$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"

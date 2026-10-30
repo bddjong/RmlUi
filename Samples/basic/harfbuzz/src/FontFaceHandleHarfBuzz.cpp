@@ -3,13 +3,88 @@
 #include "FontFaceLayer.h"
 #include "FontProvider.h"
 #include "FreeTypeInterface.h"
+#include "ClusterRange.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <algorithm>
 #include <hb-ft.h>
 #include <hb.h>
+#include <limits>
 #include <numeric>
 #include <utility>
+
+// HarfBuzz accepts a range inside the full logical paragraph, giving it the
+// surrounding characters needed for contextual shaping across styled runs.
+static bool HasParagraphContext(StringView string, const TextShapingContext& context)
+{
+	const StringView paragraph = context.paragraph_text;
+	const size_t offset = context.paragraph_offset;
+	return !paragraph.empty() && paragraph.size() <= size_t(std::numeric_limits<int>::max()) &&
+		offset <= paragraph.size() && string.size() <= paragraph.size() - offset &&
+		std::equal(string.begin(), string.end(), paragraph.begin() + offset);
+}
+
+static bool HasShapingRun(StringView string, const TextShapingContext& context)
+{
+	if (!HasParagraphContext(string, context) || context.shaping_run_length == 0) return false;
+	const size_t start = context.shaping_run_offset;
+	const size_t length = context.shaping_run_length;
+	const size_t item = context.paragraph_offset;
+	return start <= context.paragraph_text.size() && length <= context.paragraph_text.size() - start &&
+		item >= start && item - start <= length && string.size() <= length - (item - start);
+}
+
+static StringView ShapingRunText(StringView string, const TextShapingContext& context)
+{
+	if (!HasShapingRun(string, context)) return string;
+	const char* start = context.paragraph_text.begin() + context.shaping_run_offset;
+	return StringView(start, start + context.shaping_run_length);
+}
+
+static unsigned AddShapingText(hb_buffer_t* buffer, StringView string, const TextShapingContext& context)
+{
+	if (HasParagraphContext(string, context)) {
+		const bool whole_run = HasShapingRun(string, context);
+		const size_t offset = whole_run ? context.shaping_run_offset : context.paragraph_offset;
+		const size_t length = whole_run ? context.shaping_run_length : string.size();
+		hb_buffer_add_utf8(buffer, context.paragraph_text.begin(), (int)context.paragraph_text.size(),
+			(unsigned)offset, (int)length);
+		return (unsigned)context.paragraph_offset;
+	}
+	hb_buffer_add_utf8(buffer, string.begin(), (int)string.size(), 0, (int)string.size());
+	return 0;
+}
+
+struct ItemGlyphs {
+	Vector<hb_glyph_info_t> info;
+	Vector<hb_glyph_position_t> positions;
+};
+
+// HarfBuzz's default cluster level is monotonic. Locate this item's glyphs
+// without scanning a complete paragraph for each of its styled spans.
+static ItemGlyphs SelectItemGlyphs(const Vector<hb_glyph_info_t>& all_info, const Vector<hb_glyph_position_t>& all_positions,
+	unsigned paragraph_offset, size_t item_size)
+{
+	const unsigned count = (unsigned)all_info.size();
+	const hb_glyph_info_t* info = all_info.data();
+	const hb_glyph_position_t* positions = all_positions.data();
+	ItemGlyphs result;
+	if (!count) return result;
+	const unsigned end_offset = paragraph_offset + (unsigned)item_size;
+	const bool ascending = info[0].cluster <= info[count - 1].cluster;
+	const auto* begin = ascending ? std::partition_point(info, info + count, [&](const auto& glyph) { return glyph.cluster < paragraph_offset; }) :
+		std::partition_point(info, info + count, [&](const auto& glyph) { return glyph.cluster >= end_offset; });
+	const auto* end = ascending ? std::partition_point(begin, info + count, [&](const auto& glyph) { return glyph.cluster < end_offset; }) :
+		std::partition_point(begin, info + count, [&](const auto& glyph) { return glyph.cluster >= paragraph_offset; });
+	result.info.reserve(size_t(end - begin));
+	result.positions.reserve(size_t(end - begin));
+	for (const auto* glyph = begin; glyph != end; ++glyph) {
+		result.info.push_back(*glyph);
+		result.info.back().cluster -= paragraph_offset;
+		result.positions.push_back(positions[glyph - info]);
+	}
+	return result;
+}
 
 static bool IsControlCharacter(Character c)
 {
@@ -42,6 +117,22 @@ static Vector<hb_feature_t> GetTextShapingFeatures(const TextShapingContext& tex
 	return shaping_features;
 }
 
+// One entry per sized face bounds memory while allowing every styled item of
+// one immutable paragraph run to share the same HarfBuzz result.
+struct FontFaceHandleHarfBuzz::ShapingCache {
+	hb_buffer_t* buffer = hb_buffer_create();
+	Vector<hb_glyph_info_t> info;
+	Vector<hb_glyph_position_t> positions;
+	SharedPtr<const String> owner;
+	size_t run_offset = 0, run_length = 0;
+	String language, registered_script;
+	Style::Direction direction = Style::Direction::Auto;
+	Style::FontKerning kerning = Style::FontKerning::Auto;
+	TextFlowDirection registered_direction = TextFlowDirection::LeftToRight;
+	bool registered = false;
+	~ShapingCache() { hb_buffer_destroy(buffer); }
+};
+
 FontFaceHandleHarfBuzz::FontFaceHandleHarfBuzz()
 {
 	base_layer = nullptr;
@@ -56,6 +147,82 @@ FontFaceHandleHarfBuzz::~FontFaceHandleHarfBuzz()
 
 	glyphs.clear();
 	layers.clear();
+}
+
+FontFaceHandleHarfBuzz::ShapingCache& FontFaceHandleHarfBuzz::ShapeText(StringView string, const TextShapingContext& context,
+	const LanguageDataMap& registered_languages)
+{
+	if (!shaping_cache) shaping_cache = Rml::MakeUnique<ShapingCache>();
+	ShapingCache& cache = *shaping_cache;
+	RMLUI_ASSERT(cache.buffer);
+	const auto registered = registered_languages.find(context.language);
+	const bool has_registered = registered != registered_languages.end();
+	const String script = has_registered ? registered->second.script_code : String{};
+	const auto registered_direction = has_registered ? registered->second.text_flow_direction : TextFlowDirection::LeftToRight;
+	const bool cacheable = context.paragraph_owner && HasShapingRun(string, context) &&
+		context.paragraph_text.begin() == context.paragraph_owner->data() &&
+		context.paragraph_text.size() == context.paragraph_owner->size();
+	if (cacheable && cache.owner == context.paragraph_owner && cache.run_offset == context.shaping_run_offset &&
+		cache.run_length == context.shaping_run_length && cache.language == context.language &&
+		cache.direction == context.text_direction && cache.kerning == context.font_kerning &&
+		cache.registered == has_registered && cache.registered_script == script &&
+		cache.registered_direction == registered_direction)
+		return cache;
+
+	cache.info.clear();
+	cache.positions.clear();
+	const bool has_paragraph = HasParagraphContext(string, context);
+	const bool whole_run = HasShapingRun(string, context);
+	const StringView run = ShapingRunText(string, context);
+	const size_t run_offset = has_paragraph ? (whole_run ? context.shaping_run_offset : context.paragraph_offset) : 0;
+	struct ScriptSegment { size_t offset, length; };
+	Vector<ScriptSegment> scripts;
+	hb_script_t current_script = HB_SCRIPT_UNKNOWN;
+	const char* segment = run.begin();
+	for (auto it = Rml::StringIteratorU8(run); it; ++it) {
+		const hb_script_t candidate = hb_unicode_script(hb_unicode_funcs_get_default(), (hb_codepoint_t)*it);
+		if (candidate == HB_SCRIPT_COMMON || candidate == HB_SCRIPT_INHERITED || candidate == HB_SCRIPT_UNKNOWN) continue;
+		if (current_script != HB_SCRIPT_UNKNOWN && current_script != candidate) {
+			scripts.push_back({size_t(segment - run.begin()), size_t(it.get() - segment)});
+			segment = it.get();
+		}
+		current_script = candidate;
+	}
+	if (segment < run.end()) scripts.push_back({size_t(segment - run.begin()), size_t(run.end() - segment)});
+	if (context.text_direction == Style::Direction::Rtl) std::reverse(scripts.begin(), scripts.end());
+	const Vector<hb_feature_t> features = GetTextShapingFeatures(context, metrics.size);
+	for (const auto& part : scripts) {
+		const StringView portion(run.begin() + part.offset, run.begin() + part.offset + part.length);
+		TextShapingContext part_context = context;
+		if (has_paragraph) {
+			part_context.paragraph_offset = run_offset + part.offset;
+			part_context.shaping_run_offset = part_context.paragraph_offset;
+			part_context.shaping_run_length = part.length;
+		}
+		hb_buffer_clear_contents(cache.buffer);
+		ConfigureTextShapingBuffer(cache.buffer, portion, part_context, registered_languages, nullptr);
+		if (has_paragraph) AddShapingText(cache.buffer, portion, part_context);
+		else hb_buffer_add_utf8(cache.buffer, run.begin(), (int)run.size(), (unsigned)part.offset, (int)part.length);
+		hb_shape(hb_font, cache.buffer, features.empty() ? nullptr : features.data(), (unsigned)features.size());
+		++shaping_invocations;
+		unsigned count = 0;
+		const hb_glyph_info_t* info = hb_buffer_get_glyph_infos(cache.buffer, &count);
+		const hb_glyph_position_t* positions = hb_buffer_get_glyph_positions(cache.buffer, &count);
+		if (count) {
+			cache.info.insert(cache.info.end(), info, info + count);
+			cache.positions.insert(cache.positions.end(), positions, positions + count);
+		}
+	}
+	cache.owner = cacheable ? context.paragraph_owner : SharedPtr<const String>{};
+	cache.run_offset = context.shaping_run_offset;
+	cache.run_length = context.shaping_run_length;
+	cache.language = context.language;
+	cache.direction = context.text_direction;
+	cache.kerning = context.font_kerning;
+	cache.registered = has_registered;
+	cache.registered_script = script;
+	cache.registered_direction = registered_direction;
+	return cache;
 }
 
 bool FontFaceHandleHarfBuzz::Initialize(FontFaceHandleFreetype face, int font_size, bool load_default_glyphs)
@@ -84,6 +251,11 @@ const FontMetrics& FontFaceHandleHarfBuzz::GetFontMetrics() const
 	return metrics;
 }
 
+bool FontFaceHandleHarfBuzz::SupportsCharacter(Character character) const
+{
+	return ft_face && FT_Get_Char_Index((FT_Face)ft_face, (FT_ULong)character) != 0;
+}
+
 const FontGlyphMap& FontFaceHandleHarfBuzz::GetGlyphs() const
 {
 	return glyphs;
@@ -105,18 +277,13 @@ int FontFaceHandleHarfBuzz::GetStringWidth(StringView string, const TextShapingC
 	int width = 0;
 
 	// Apply text shaping.
-	hb_buffer_t* shaping_buffer = hb_buffer_create();
-	RMLUI_ASSERT(shaping_buffer != nullptr);
-	ConfigureTextShapingBuffer(shaping_buffer, string, text_shaping_context, registered_languages, nullptr);
-	hb_buffer_add_utf8(shaping_buffer, string.begin(), (int)string.size(), 0, (int)string.size());
-
+	ShapingCache& shaped = ShapeText(string, text_shaping_context, registered_languages);
+	const unsigned paragraph_offset = HasParagraphContext(string, text_shaping_context) ? (unsigned)text_shaping_context.paragraph_offset : 0;
+	ItemGlyphs selected = SelectItemGlyphs(shaped.info, shaped.positions, paragraph_offset, string.size());
+	unsigned int glyph_count = (unsigned)selected.info.size();
+	hb_glyph_info_t* glyph_info = selected.info.data();
+	hb_glyph_position_t* glyph_positions = selected.positions.data();
 	Vector<hb_feature_t> shaping_features = GetTextShapingFeatures(text_shaping_context, metrics.size);
-	const hb_feature_t* shaping_features_pointer = !shaping_features.empty() ? shaping_features.data() : nullptr;
-	hb_shape(hb_font, shaping_buffer, shaping_features_pointer, (unsigned int)shaping_features.size());
-
-	unsigned int glyph_count = 0;
-	hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(shaping_buffer, &glyph_count);
-	hb_glyph_position_t* glyph_positions = hb_buffer_get_glyph_positions(shaping_buffer, &glyph_count);
 
 	Queue<Pair<FontGlyphIndex, const FontGlyph*>> glyph_queue;
 
@@ -177,8 +344,6 @@ int FontFaceHandleHarfBuzz::GetStringWidth(StringView string, const TextShapingC
 		
 		g += extra_glyph_index_offset;
 	}
-
-	hb_buffer_destroy(shaping_buffer);
 
 	return Rml::Math::Max(width, 0);
 }
@@ -288,10 +453,10 @@ int FontFaceHandleHarfBuzz::GenerateString(RenderManager& render_manager, Textur
 
 	mesh_list.resize(num_geometries);
 
-	hb_buffer_t* shaping_buffer = hb_buffer_create();
-	RMLUI_ASSERT(shaping_buffer != nullptr);
+	ShapingCache& shaped = ShapeText(string, text_shaping_context, registered_languages);
+	const unsigned paragraph_offset = HasParagraphContext(string, text_shaping_context) ? (unsigned)text_shaping_context.paragraph_offset : 0;
+	ItemGlyphs selected = SelectItemGlyphs(shaped.info, shaped.positions, paragraph_offset, string.size());
 	Vector<hb_feature_t> shaping_features = GetTextShapingFeatures(text_shaping_context, metrics.size);
-	const hb_feature_t* shaping_features_pointer = !shaping_features.empty() ? shaping_features.data() : nullptr;
 
 	for (size_t layer_index = 0; layer_index < layer_configuration.size(); ++layer_index)
 	{
@@ -315,15 +480,9 @@ int FontFaceHandleHarfBuzz::GenerateString(RenderManager& render_manager, Textur
 		for (int tex_index = 0; tex_index < num_textures; ++tex_index)
 			mesh_list[geometry_index + tex_index].texture = layer->GetTexture(render_manager, tex_index);
 
-		// Set up and apply text shaping.
-		hb_buffer_clear_contents(shaping_buffer);
-		ConfigureTextShapingBuffer(shaping_buffer, string, text_shaping_context, registered_languages, nullptr);
-		hb_buffer_add_utf8(shaping_buffer, string.begin(), (int)string.size(), 0, (int)string.size());
-		hb_shape(hb_font, shaping_buffer, shaping_features_pointer, (unsigned int)shaping_features.size());
-
-		unsigned int glyph_count = 0;
-		hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(shaping_buffer, &glyph_count);
-		hb_glyph_position_t* glyph_positions = hb_buffer_get_glyph_positions(shaping_buffer, &glyph_count);
+		unsigned int glyph_count = (unsigned)selected.info.size();
+		hb_glyph_info_t* glyph_info = selected.info.data();
+		hb_glyph_position_t* glyph_positions = selected.positions.data();
 
 		mesh_list[geometry_index].mesh.indices.reserve(string.size() * 6);
 		mesh_list[geometry_index].mesh.vertices.reserve(string.size() * 4);
@@ -382,7 +541,8 @@ int FontFaceHandleHarfBuzz::GenerateString(RenderManager& render_manager, Textur
 					glyph_color = ColourbPremultiplied(layer_colour.alpha, layer_colour.alpha);
 
 				Vector2f glyph_offset = {0.0f, 0.0f};
-				glyph_offset += Vector2f{float(glyph_positions[g].x_offset >> 6), float(glyph_positions[g].y_offset >> 6)};
+				// HarfBuzz's positive Y points up; RmlUi's screen coordinates point down.
+				glyph_offset += Vector2f{float(glyph_positions[g].x_offset >> 6), -float(glyph_positions[g].y_offset >> 6)};
 				Vector2f glyph_geometry_position = Vector2f{position.x + line_width, position.y} + glyph_offset;
 				layer->GenerateGeometry(&mesh_list[geometry_index], glyph_pair.first, glyph_pair.second.character, is_cluster, glyph_geometry_position, glyph_color);
 
@@ -403,8 +563,6 @@ int FontFaceHandleHarfBuzz::GenerateString(RenderManager& render_manager, Textur
 
 		geometry_index += num_textures;
 	}
-
-	hb_buffer_destroy(shaping_buffer);
 
 	return Rml::Math::Max(line_width, 0);
 }
@@ -570,7 +728,6 @@ bool FontFaceHandleHarfBuzz::AppendFallbackClusterGlyphs(StringView cluster, con
 		cluster_glyphs.reserve((size_t)glyph_count);
 
 		int glyph_info_index_offset = text_direction == TextFlowDirection::RightToLeft ? (int)glyph_count - 1 : 0;
-		int cluster_string_offset = 0;
 		bool has_supported_glyph = false;
 
 		// Create the cluster glyphs.
@@ -583,7 +740,13 @@ bool FontFaceHandleHarfBuzz::AppendFallbackClusterGlyphs(StringView cluster, con
 			if (text_direction == TextFlowDirection::RightToLeft)
 				glyph_info_index_offset -= 2;
 
-			Character character = Rml::StringUtilities::ToCharacter(cluster.begin() + cluster_string_offset, cluster.end());
+			// HarfBuzz clusters are UTF-8 byte offsets, not one character per
+			// glyph. A character may decompose into several glyphs (or a group of
+			// characters into one), so advancing the input once per glyph can
+			// read beyond the cluster and associate glyphs with the wrong text.
+			const auto byte_offset = glyph_info[glyph_info_index].cluster;
+			if (byte_offset >= cluster.size()) continue;
+			Character character = Rml::StringUtilities::ToCharacter(cluster.begin() + byte_offset, cluster.end());
 			const FontGlyph* glyph = fallback_face->GetOrAppendGlyph(glyph_info[glyph_info_index].codepoint, character, false);
 			if (glyph && glyph->bitmap_data && glyph->bitmap_dimensions.x > 0 && glyph->bitmap_dimensions.y > 0)
 			{
@@ -592,8 +755,6 @@ bool FontFaceHandleHarfBuzz::AppendFallbackClusterGlyphs(StringView cluster, con
 					has_supported_glyph = true;
 			}
 
-			cluster_string_offset += (int)Rml::StringUtilities::BytesUTF8(character);
-			RMLUI_ASSERT(cluster_string_offset <= (int)cluster.size());
 		}
 
 		if (cluster_glyphs.empty() || !has_supported_glyph)
@@ -613,9 +774,11 @@ bool FontFaceHandleHarfBuzz::AppendFallbackClusterGlyphs(StringView cluster, con
 			}
 		}
 
+		hb_buffer_destroy(shaping_buffer);
 		return true;
 	}
 
+	hb_buffer_destroy(shaping_buffer);
 	return false;
 }
 
@@ -719,19 +882,20 @@ void FontFaceHandleHarfBuzz::ConfigureTextShapingBuffer(hb_buffer_t* shaping_buf
 	// Set the buffer's script.
 	hb_script_t script = HB_SCRIPT_UNKNOWN;
 	auto registered_language_location = registered_languages.find(text_shaping_context.language);
-	if (registered_language_location != registered_languages.cend())
-		// Get script from registered language data.
-		script = hb_script_from_string(registered_language_location->second.script_code.c_str(), -1);
-	else
-	{
-		// Try to guess script from the first character of the string.
-		hb_unicode_funcs_t* unicode_functions = hb_unicode_funcs_get_default();
-		if (unicode_functions != nullptr && !string.empty())
-		{
-			Character first_character = Rml::StringUtilities::ToCharacter(string.begin(), string.end());
-			script = hb_unicode_script(unicode_functions, (hb_codepoint_t)first_character);
+	// A language may contain several scripts. Prefer the actual strong script
+	// of this itemized run, using the registered script only for neutral text.
+	hb_unicode_funcs_t* unicode_functions = hb_unicode_funcs_get_default();
+	if (unicode_functions != nullptr) {
+		for (auto it = Rml::StringIteratorU8(ShapingRunText(string, text_shaping_context)); it; ++it) {
+			hb_script_t candidate = hb_unicode_script(unicode_functions, (hb_codepoint_t)*it);
+			if (candidate != HB_SCRIPT_COMMON && candidate != HB_SCRIPT_INHERITED && candidate != HB_SCRIPT_UNKNOWN) {
+				script = candidate;
+				break;
+			}
 		}
 	}
+	if (script == HB_SCRIPT_UNKNOWN && registered_language_location != registered_languages.cend())
+		script = hb_script_from_string(registered_language_location->second.script_code.c_str(), -1);
 
 	hb_buffer_set_script(shaping_buffer, script);
 
@@ -767,7 +931,15 @@ void FontFaceHandleHarfBuzz::ConfigureTextShapingBuffer(hb_buffer_t* shaping_buf
 		*determined_text_direction = text_direction == HB_DIRECTION_LTR ? TextFlowDirection::LeftToRight : TextFlowDirection::RightToLeft;
 
 	// Set buffer flags for additional text-shaping configuration.
-	int buffer_flags = HB_BUFFER_FLAG_DEFAULT | HB_BUFFER_FLAG_BOT | HB_BUFFER_FLAG_EOT;
+	int buffer_flags = HB_BUFFER_FLAG_DEFAULT;
+	const bool whole_run = HasShapingRun(string, text_shaping_context);
+	const size_t run_offset = whole_run ? text_shaping_context.shaping_run_offset : text_shaping_context.paragraph_offset;
+	const size_t run_length = whole_run ? text_shaping_context.shaping_run_length : string.size();
+	if (!HasParagraphContext(string, text_shaping_context) || run_offset == 0)
+		buffer_flags |= HB_BUFFER_FLAG_BOT;
+	if (!HasParagraphContext(string, text_shaping_context) ||
+		run_offset + run_length == text_shaping_context.paragraph_text.size())
+		buffer_flags |= HB_BUFFER_FLAG_EOT;
 
 #if HB_VERSION_ATLEAST(5, 1, 0)
 	if (script == HB_SCRIPT_ARABIC)
@@ -781,23 +953,9 @@ void FontFaceHandleHarfBuzz::ConfigureTextShapingBuffer(hb_buffer_t* shaping_buf
 }
 
 StringView FontFaceHandleHarfBuzz::GetCurrentClusterString(const hb_glyph_info_t* glyph_info, int glyph_count, int glyph_index,
-	Character first_character, StringView string, int& cluster_codepoint_count) const
+	Character /*first_character*/, StringView string, int& cluster_codepoint_count) const
 {
-	unsigned int cluster_index = glyph_info[glyph_index].cluster;
-	cluster_codepoint_count = 1;
-	int cluster_offset = glyph_index + 1;
-	int cluster_string_size = (int)Rml::StringUtilities::BytesUTF8(first_character);
-
-	// Continue counting characters that are part of the same cluster.
-	while (cluster_offset < (int)glyph_count && glyph_info[cluster_offset].cluster == cluster_index)
-	{
-		Character current_cluster_character =
-			Rml::StringUtilities::ToCharacter(string.begin() + glyph_info[glyph_index].cluster + cluster_string_size, string.end());
-		cluster_string_size += (int)Rml::StringUtilities::BytesUTF8(current_cluster_character);
-
-		++cluster_codepoint_count;
-		++cluster_offset;
-	}
-
-	return StringView(string.begin() + glyph_info[glyph_index].cluster, string.begin() + glyph_info[glyph_index].cluster + cluster_string_size);
+	const auto range = centuries_cluster_range(glyph_info, glyph_count, glyph_index, string.size());
+	cluster_codepoint_count = range.glyph_count;
+	return StringView(string.begin() + range.begin, string.begin() + range.end);
 }

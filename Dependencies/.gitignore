@@ -2,3 +2,5 @@ include/
 lib/
 tracy/
 */
+!SheenBidi/
+!SheenBidi/**/

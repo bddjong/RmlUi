@@ -2,6 +2,7 @@
 
 #include "LanguageData.h"
 #include <RmlUi/Core/FontEngineInterface.h>
+#include <unordered_map>
 
 using Rml::byte;
 using Rml::Character;
@@ -18,6 +19,8 @@ using Rml::TextShapingContext;
 using Rml::TexturedMeshList;
 using Rml::Vector2f;
 namespace Style = Rml::Style;
+
+class FontFaceHandleHarfBuzz;
 
 class FontEngineInterfaceHarfBuzz : public Rml::FontEngineInterface {
 public:
@@ -60,5 +63,13 @@ public:
 	void RegisterLanguage(const String& language_bcp47_code, const String& script_iso15924_code, const TextFlowDirection text_flow_direction);
 
 private:
+	FontFaceHandleHarfBuzz* FaceForRun(FontFaceHandleHarfBuzz* primary, StringView run, const TextShapingContext& context);
 	LanguageDataMap registered_languages;
+	Rml::SharedPtr<const String> face_run_owner;
+	FontFaceHandleHarfBuzz* face_run_primary = nullptr;
+	FontFaceHandleHarfBuzz* face_run_result = nullptr;
+	size_t face_run_offset = 0, face_run_length = 0;
+	// Effect configurations belong to a face. Keep the original effects so a
+	// shaped fallback run can prepare an equivalent configuration on its face.
+	std::unordered_map<FontFaceHandle, std::unordered_map<FontEffectsHandle, FontEffectList>> effects_by_face;
 };

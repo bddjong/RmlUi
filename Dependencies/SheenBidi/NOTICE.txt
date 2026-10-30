@@ -1,0 +1,3 @@
+SheenBidi
+Copyright 2014-2026 Muhammad Tayyab Akram
+https://github.com/Tehreer/SheenBidi

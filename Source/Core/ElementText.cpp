@@ -212,7 +212,7 @@ void ElementText::OnRender()
 }
 
 bool ElementText::GenerateLine(String& line, int& line_length, float& line_width, int line_begin, float maximum_line_width, float right_spacing_width,
-	bool trim_whitespace_prefix, bool decode_escape_characters, bool allow_empty)
+	bool trim_whitespace_prefix, bool decode_escape_characters, bool allow_empty, TextWidthCallback width_callback, void* width_userdata)
 {
 	RMLUI_ZoneScoped;
 	RMLUI_ASSERT(maximum_line_width >= 0.f);
@@ -247,6 +247,13 @@ bool ElementText::GenerateLine(String& line, int& line_length, float& line_width
 	WordBreak word_break = computed.word_break();
 
 	FontEngineInterface* font_engine_interface = GetFontEngineInterface();
+	const auto measure = [&](StringView value, const char* begin, const char* end, Character prior) {
+		if (width_callback) {
+			const int width = width_callback(width_userdata, value, int(begin - text.c_str()), int(end - text.c_str()), prior);
+			if (width >= 0) return width;
+		}
+		return font_engine_interface->GetStringWidth(font_face_handle, value, text_shaping_context, prior);
+	};
 
 	// Starting at the line_begin character, we generate sections of the text (we'll call them tokens) depending on the
 	// white-space parsing parameters. Each section is then appended to the line if it can fit. If not, or if an
@@ -265,7 +272,8 @@ bool ElementText::GenerateLine(String& line, int& line_length, float& line_width
 		// Generate the next token and determine its pixel-length.
 		bool break_line = BuildToken(token, next_token_begin, string_end, line.empty() && trim_whitespace_prefix, collapse_white_space,
 			break_at_endline, text_transform_property, decode_escape_characters);
-		int token_width = font_engine_interface->GetStringWidth(font_face_handle, token, text_shaping_context, previous_codepoint);
+		const bool explicit_line_break = break_line;
+		int token_width = measure(token, token_begin, next_token_begin, previous_codepoint);
 
 		// If we're breaking to fit a line box, check if the token can fit on the line before we add it.
 		if (break_at_line)
@@ -303,13 +311,15 @@ bool ElementText::GenerateLine(String& line, int& line_length, float& line_width
 						next_token_begin = token_begin;
 						BuildToken(token, next_token_begin, partial_string_end, line.empty() && trim_whitespace_prefix, collapse_white_space,
 							break_at_endline, text_transform_property, decode_escape_characters);
-						token_width = font_engine_interface->GetStringWidth(font_face_handle, token, text_shaping_context, previous_codepoint);
+						token_width = measure(token, token_begin, next_token_begin, previous_codepoint);
 
 						if (force_loop_break_at_end || token_width <= max_token_width)
 							break;
 					}
 
-					break_line = true;
+					// A forced-width split at the end consumed the whole input;
+					// unlike an explicit newline, it does not create an empty line.
+					break_line = explicit_line_break || next_token_begin != string_end;
 				}
 				else if (allow_empty || !line.empty())
 				{
@@ -351,6 +361,18 @@ void ElementText::AddLine(Vector2f line_position, String line)
 	lines.emplace_back(std::move(line), line_position);
 
 	geometry_dirty = true;
+}
+
+void ElementText::AddLine(Vector2f line_position, String line, SharedPtr<const String> paragraph, size_t paragraph_offset, Style::Direction direction,
+	size_t shaping_run_offset, size_t shaping_run_length)
+{
+	AddLine(line_position, std::move(line));
+	Line& stored = lines.back();
+	stored.paragraph = std::move(paragraph);
+	stored.paragraph_offset = paragraph_offset;
+	stored.direction = direction;
+	stored.shaping_run_offset = shaping_run_offset;
+	stored.shaping_run_length = shaping_run_length;
 }
 
 void ElementText::SuppressAutoLayout()
@@ -487,14 +509,28 @@ void ElementText::GenerateGeometry(RenderManager& render_manager, const FontFace
 
 	const auto& computed = GetComputedValues();
 	const TextShapingContext text_shaping_context{computed.language(), computed.direction(), computed.font_kerning(), computed.letter_spacing()};
+	const auto context_for_line = [&](const Line& line) {
+		TextShapingContext result = text_shaping_context;
+		if (line.paragraph) {
+			result.paragraph_text = *line.paragraph;
+			result.paragraph_owner = line.paragraph;
+			result.paragraph_offset = line.paragraph_offset;
+			result.text_direction = line.direction;
+			result.direction_resolved = true;
+			result.shaping_run_offset = line.shaping_run_offset;
+			result.shaping_run_length = line.shaping_run_length;
+		}
+		return result;
+	};
 
 	TexturedMeshList mesh_list;
 	mesh_list.reserve(geometry.size());
 
 	for (Line& line : lines)
 	{
+		const auto line_context = context_for_line(line);
 		line.width = GetFontEngineInterface()->GenerateString(render_manager, font_face_handle, font_effects_handle, line.text, line.position, colour,
-			opacity, text_shaping_context, mesh_list);
+			opacity, line_context, mesh_list);
 	}
 
 	const auto text_overflows_on_line = [&](const Line& line) { return line.position.x + line.width > text_overflow.overflow_width; };

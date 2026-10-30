@@ -24,6 +24,7 @@ add_executable(${TARGET_NAME}
 	FlexFormatting.cpp
 	Layout.cpp
 	Localization.cpp
+	TextBidi.cpp
 	main.cpp
 	Math.cpp
 	MediaQuery.cpp

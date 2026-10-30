@@ -62,7 +62,7 @@ private:
 		Style::FontWeight weight);
 
 	bool AddFace(FontFaceHandleFreetype face, const String& family, Style::FontStyle style, Style::FontWeight weight,
-		bool fallback_face, UniquePtr<byte[]> face_memory);
+		bool fallback_face, UniquePtr<byte[]>& face_memory);
 
 	using FontFaceList = Vector<FontFace*>;
 	using FontFamilyMap = UnorderedMap<String, UniquePtr<FontFamily>>;

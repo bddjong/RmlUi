@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../../Include/RmlUi/Core/Types.h"
+#include "../../../Include/RmlUi/Core/StyleTypes.h"
 
 namespace Rml {
 
@@ -34,6 +35,13 @@ struct PlacedFragment {
 	float layout_width;
 	bool split_left;
 	bool split_right;
+	SharedPtr<const String> paragraph = {};
+	size_t paragraph_offset = 0;
+	Style::Direction direction = Style::Direction::Auto;
+	size_t shaping_run_offset = 0;
+	size_t shaping_run_length = 0;
+	size_t text_offset = 0;
+	size_t text_length = 0;
 };
 
 } // namespace Rml

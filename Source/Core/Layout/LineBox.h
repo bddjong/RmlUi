@@ -114,6 +114,21 @@ private:
 	};
 	using FragmentList = Vector<Fragment>;
 
+	struct BidiPlacement {
+		SharedPtr<const String> paragraph = {};
+		size_t offset = 0;
+		Style::Direction direction = Style::Direction::Auto;
+		size_t shaping_run_offset = 0;
+		size_t shaping_run_length = 0;
+		size_t text_offset = 0;
+		size_t text_length = 0;
+		float position_x = 0.f;
+		float width = 0.f;
+		bool split_left = false;
+		bool split_right = false;
+	};
+	bool ResolveBidiLine(Element* offset_parent, Vector<Vector<BidiPlacement>>& placements);
+
 	// Place an open fragment.
 	void CloseFragment(Fragment& open_fragment, float right_inner_edge_position);
 

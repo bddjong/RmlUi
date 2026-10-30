@@ -1,10 +1,15 @@
 #include "LineBox.h"
 #include "../../../Include/RmlUi/Core/Element.h"
+#include "../../../Include/RmlUi/Core/ElementText.h"
+#include "../../../Include/RmlUi/Core/ComputedValues.h"
+#include "../../../Include/RmlUi/Core/Core.h"
+#include "../../../Include/RmlUi/Core/FontEngineInterface.h"
 #include "../../../Include/RmlUi/Core/StyleTypes.h"
 #include "InlineBox.h"
 #include "InlineLevelBox.h"
 #include "LayoutPools.h"
 #include <float.h>
+#include <algorithm>
 #include <numeric>
 
 namespace Rml {
@@ -292,9 +297,211 @@ UniquePtr<LineBox> LineBox::DetermineVerticalPositioning(const InlineBoxRoot* ro
 	return new_line_box;
 }
 
+bool LineBox::ResolveBidiLine(Element* offset_parent, Vector<Vector<BidiPlacement>>& placements)
+{
+	struct Item {
+		size_t fragment_index, begin, end;
+		InlineLevelBox_Text* box;
+		FontFaceHandle face;
+	};
+	Vector<Item> items;
+	Vector<size_t> atomic_fragments;
+	struct OrderedPiece { size_t fragment_index, piece_index; };
+	Vector<OrderedPiece> ordered;
+	const TextParagraphCollector::Group* paragraph = nullptr;
+	for (size_t i = 0; i < fragments.size(); ++i) {
+		const Fragment& fragment = fragments[i];
+		if (fragment.type == FragmentType::SizedBox) {
+			const auto* current = fragment.box->GetParagraphGroup();
+			if (!current || (paragraph && paragraph != current)) return false;
+			paragraph = current;
+			atomic_fragments.push_back(i);
+			continue;
+		}
+		if (fragment.type == FragmentType::InlineBox) {
+			if (fragment.children_end_index == (int)i + 1) {
+				const auto* current = fragment.box->GetParagraphGroup();
+				if (!current || (paragraph && paragraph != current)) return false;
+				paragraph = current;
+				atomic_fragments.push_back(i);
+			}
+			continue;
+		}
+		if (fragment.type != FragmentType::TextRun) continue;
+		auto* box = static_cast<InlineLevelBox_Text*>(fragment.box);
+		const auto* current = box->GetParagraph();
+		const auto* span = box->GetParagraphSpan();
+		if (!current || !span || (paragraph && paragraph != current)) return false;
+		paragraph = current;
+		const auto& source = box->GetFragment(fragment.fragment_handle);
+		if (source.text.empty()) { atomic_fragments.push_back(i); continue; }
+		if (source.source_begin < 0 || source.source_end < source.source_begin ||
+			(size_t)source.source_end >= span->mapping.source_to_paragraph.size()) return false;
+		size_t begin = 0;
+		if (!paragraph->paragraph.MatchFragment(span->mapping, source.source_begin, source.source_end, source.text, begin))
+			return false;
+		items.push_back({i, begin, begin + source.text.size(), box, box->GetTextElement()->GetFontFaceHandle()});
+	}
+	if (!paragraph) return false;
+	for (size_t index : atomic_fragments) {
+		Element* element = fragments[index].box->GetLayoutElement();
+		bool found = false;
+		for (const auto& object : paragraph->objects) {
+			if (object.element == element) {
+				items.push_back({index, object.begin, object.end, nullptr, 0});
+				found = true;
+				break;
+			}
+		}
+		if (!found) return false;
+	}
+	std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.fragment_index < b.fragment_index; });
+	if (items.empty()) return false;
+	if (!paragraph->shared_text) return false;
+	const String& logical = *paragraph->shared_text;
+	Vector<TextBidiRun> runs;
+	const size_t line_begin = items.front().begin;
+	const size_t line_end = items.back().end;
+	auto* engine = GetFontEngineInterface();
+	if (!engine || line_begin >= line_end || !engine->ResolveTextBidi(logical, offset_parent->GetComputedValues().direction(),
+		line_begin, line_end - line_begin, runs)) return false;
+
+	placements.resize(fragments.size());
+	size_t covered_bytes = 0;
+	for (const TextBidiRun& run : runs) {
+		Vector<size_t> in_run;
+		auto first = std::lower_bound(items.begin(), items.end(), run.offset,
+			[](const Item& item, size_t offset) { return item.end <= offset; });
+		for (auto it = first; it != items.end() && it->begin < run.offset + run.length; ++it)
+			in_run.push_back(size_t(it - items.begin()));
+		if (run.direction == Style::Direction::Rtl) std::reverse(in_run.begin(), in_run.end());
+		for (size_t item_index : in_run) {
+			const Item& item = items[item_index];
+			const size_t begin = Math::Max(item.begin, run.offset);
+			const size_t end = Math::Min(item.end, run.offset + run.length);
+			if (begin >= end) continue;
+			if (!item.box) {
+				if (begin != item.begin || end != item.end) return false;
+				const float width = fragments[item.fragment_index].layout_width;
+				placements[item.fragment_index].push_back({nullptr, begin, run.direction, begin, end - begin, 0, end - begin, 0.f, width});
+				ordered.push_back({item.fragment_index, placements[item.fragment_index].size() - 1});
+				covered_bytes += end - begin;
+				continue;
+			}
+			const auto& style = item.box->GetTextElement()->GetComputedValues();
+			size_t shape_begin = begin, shape_end = end;
+			const auto* span = item.box->GetParagraphSpan();
+			const auto& paragraph_runs = paragraph->bidi_runs;
+			auto paragraph_run = std::lower_bound(paragraph_runs.begin(), paragraph_runs.end(), begin,
+				[](const TextBidiRun& candidate, size_t offset) { return candidate.offset + candidate.length <= offset; });
+			if (paragraph_run != paragraph_runs.end() && paragraph_run->direction == run.direction &&
+				paragraph_run->offset <= begin && paragraph_run->offset + paragraph_run->length >= end) {
+				shape_begin = Math::Max(paragraph_run->offset, span->shaping_begin);
+				shape_end = Math::Min(paragraph_run->offset + paragraph_run->length, span->shaping_end);
+			}
+			TextShapingContext context{style.language(), run.direction, style.font_kerning(), style.letter_spacing()};
+			context.paragraph_text = logical;
+			context.paragraph_owner = paragraph->shared_text;
+			context.paragraph_offset = begin;
+			context.direction_resolved = true;
+			context.shaping_run_offset = shape_begin;
+			context.shaping_run_length = shape_end - shape_begin;
+			const float width = (float)engine->GetStringWidth(item.face, StringView(logical, begin, end - begin), context);
+			placements[item.fragment_index].push_back({paragraph->shared_text, begin, run.direction, shape_begin, shape_end - shape_begin,
+				begin - item.begin, end - begin, 0.f, width});
+			ordered.push_back({item.fragment_index, placements[item.fragment_index].size() - 1});
+			covered_bytes += end - begin;
+		}
+	}
+	size_t expected_bytes = 0;
+	for (const Item& item : items) expected_bytes += item.end - item.begin;
+	if (covered_bytes != expected_bytes) { placements.clear(); return false; }
+	struct InlineSegment { size_t fragment_index, first, last; float left_edge, right_edge; bool first_in_box, last_in_box; };
+	Vector<InlineSegment> segments;
+	Vector<float> before(ordered.size(), 0.f), after(ordered.size(), 0.f);
+	Vector<Vector<size_t>> memberships(fragments.size()), segment_indices(fragments.size());
+	for (size_t i = 0; i < ordered.size(); ++i) {
+		const size_t child = ordered[i].fragment_index;
+		FragmentIndex ancestor = fragments[child].type == FragmentType::InlineBox ? (FragmentIndex)child : fragments[child].parent;
+		while (ancestor != RootFragmentIndex) {
+			memberships[(size_t)ancestor].push_back(i);
+			ancestor = fragments[(size_t)ancestor].parent;
+		}
+	}
+	for (size_t parent_index = 0; parent_index < fragments.size(); ++parent_index) {
+		const Fragment& parent = fragments[parent_index];
+		if (parent.type != FragmentType::InlineBox || parent.children_end_index <= (int)parent_index) continue;
+		const size_t first_segment = segments.size();
+		const auto& members = memberships[parent_index];
+		for (size_t i = 0; i < members.size();) {
+			const size_t first = members[i++];
+			size_t last = first;
+			while (i < members.size() && members[i] == last + 1) last = members[i++];
+			segment_indices[parent_index].push_back(segments.size());
+			segments.push_back({parent_index, first, last, 0.f, 0.f, false, false});
+		}
+		if (segments.size() != first_segment) {
+			InlineSegment& first = segments[first_segment];
+			InlineSegment& last = segments.back();
+			first.first_in_box = true;
+			last.last_in_box = true;
+			first.left_edge = parent.split_left ? 0.f : parent.box->GetSpacingLeft();
+			last.right_edge = parent.split_right ? 0.f : parent.box->GetSpacingRight();
+			before[first.first] += first.left_edge;
+			after[last.last] += last.right_edge;
+		}
+	}
+	float cursor = FLT_MAX;
+	for (const Fragment& fragment : fragments)
+		if (fragment.type == FragmentType::TextRun || fragment.type == FragmentType::SizedBox || fragment.type == FragmentType::InlineBox)
+			cursor = Math::Min(cursor, fragment.position.x);
+	for (size_t i = 0; i < ordered.size(); ++i) {
+		cursor += before[i];
+		auto& piece = placements[ordered[i].fragment_index][ordered[i].piece_index];
+		piece.position_x = cursor;
+		cursor += piece.width + after[i];
+	}
+	for (const Item& item : items) {
+		Fragment& fragment = fragments[item.fragment_index];
+		float left = FLT_MAX, right = -FLT_MAX;
+		for (const auto& piece : placements[item.fragment_index]) {
+			left = Math::Min(left, piece.position_x);
+			right = Math::Max(right, piece.position_x + piece.width);
+		}
+		if (left <= right) { fragment.position.x = left; fragment.layout_width = right - left; }
+	}
+	box_cursor = cursor;
+	for (const InlineSegment& segment : segments) {
+		Fragment& parent = fragments[segment.fragment_index];
+		const auto& first = placements[ordered[segment.first].fragment_index][ordered[segment.first].piece_index];
+		const auto& last = placements[ordered[segment.last].fragment_index][ordered[segment.last].piece_index];
+		float left = first.position_x - before[segment.first];
+		float right = last.position_x + last.width + after[segment.last];
+		for (FragmentIndex ancestor = parent.parent; ancestor != RootFragmentIndex; ancestor = fragments[(size_t)ancestor].parent) {
+			for (size_t index : segment_indices[(size_t)ancestor]) {
+				const InlineSegment& outer = segments[index];
+				if (outer.first == segment.first) left += outer.left_edge;
+				if (outer.last == segment.last) right -= outer.right_edge;
+			}
+		}
+		const bool left_split = parent.split_left || !segment.first_in_box;
+		const bool right_split = parent.split_right || !segment.last_in_box;
+		placements[segment.fragment_index].push_back({nullptr, 0, Style::Direction::Auto, 0, 0, 0, 0,
+			left, Math::Max(0.f, right - left - segment.left_edge - segment.right_edge), left_split, right_split});
+	}
+	// Empty inline boxes contributed a zero-width object for bidi ordering;
+	// only their generated box segments are submitted to InlineBox.
+	for (size_t index : atomic_fragments)
+		if ((fragments[index].type == FragmentType::InlineBox || fragments[index].type == FragmentType::TextRun) && !placements[index].empty())
+			placements[index].erase(placements[index].begin());
+	return true;
+}
+
 void LineBox::Close(Element* offset_parent, Vector2f offset_parent_position, Style::TextAlign text_align)
 {
 	RMLUI_ASSERT(is_vertically_positioned && !is_closed);
+	Vector<Vector<BidiPlacement>> bidi_placements;
+	if (!ResolveBidiLine(offset_parent, bidi_placements)) bidi_placements.clear();
 
 	// Horizontal alignment using available space on our line.
 	if (box_cursor < line_width)
@@ -310,15 +517,16 @@ void LineBox::Close(Element* offset_parent, Vector2f offset_parent_position, Sty
 	}
 
 	// Position and size all inline-level boxes, place geometry boxes.
-	for (const Fragment& fragment : fragments)
+	for (size_t fragment_index = 0; fragment_index < fragments.size(); ++fragment_index)
 	{
+		const Fragment& fragment = fragments[fragment_index];
 		// Skip inline boxes which have not been closed (moved down to next line).
 		if (fragment.type == FragmentType::InlineBox && fragment.children_end_index == 0)
 			continue;
 
 		RMLUI_ASSERT(fragment.layout_width >= 0.f);
 
-		const PlacedFragment placed_fragment = {
+		PlacedFragment placed_fragment = {
 			offset_parent,
 			fragment.fragment_handle,
 			line_position - offset_parent_position + fragment.position + Vector2f(offset_horizontal_alignment, 0.f),
@@ -326,7 +534,31 @@ void LineBox::Close(Element* offset_parent, Vector2f offset_parent_position, Sty
 			fragment.split_left,
 			fragment.split_right,
 		};
-		fragment.box->Submit(placed_fragment);
+		if ((fragment.type == FragmentType::TextRun || fragment.type == FragmentType::InlineBox) &&
+			fragment_index < bidi_placements.size() && !bidi_placements[fragment_index].empty()) {
+			Vector<PlacedFragment> pieces;
+			for (const auto& bidi : bidi_placements[fragment_index]) {
+				PlacedFragment piece = placed_fragment;
+				piece.position.x = line_position.x - offset_parent_position.x + bidi.position_x + offset_horizontal_alignment;
+				piece.layout_width = bidi.width;
+				piece.paragraph = bidi.paragraph;
+				piece.paragraph_offset = bidi.offset;
+				piece.direction = bidi.direction;
+				piece.shaping_run_offset = bidi.shaping_run_offset;
+				piece.shaping_run_length = bidi.shaping_run_length;
+				piece.text_offset = bidi.text_offset;
+				piece.text_length = bidi.text_length;
+				if (fragment.type == FragmentType::InlineBox) {
+					piece.split_left = bidi.split_left;
+					piece.split_right = bidi.split_right;
+				}
+				pieces.push_back(piece);
+			}
+			if (fragment.type == FragmentType::TextRun) static_cast<InlineLevelBox_Text*>(fragment.box)->SubmitSlices(pieces);
+			else static_cast<InlineBox*>(fragment.box)->SubmitSlices(pieces);
+		} else {
+			fragment.box->Submit(placed_fragment);
+		}
 	}
 
 	is_closed = true;

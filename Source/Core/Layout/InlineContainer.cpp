@@ -23,6 +23,7 @@ InlineContainer::InlineContainer(BlockContainer* _parent, float _available_width
 	position = parent->NextBoxPosition();
 
 	const auto& computed = parent->GetElement()->GetComputedValues();
+	paragraph_collector.Collect(parent->GetElement());
 	element_line_height = computed.line_height().value;
 	wrap_content = (computed.white_space() != Style::WhiteSpace::Nowrap);
 	text_align = computed.text_align();
@@ -40,7 +41,9 @@ InlineBox* InlineContainer::AddInlineElement(Element* element, const Box& box)
 
 	if (auto text_element = rmlui_dynamic_cast<ElementText*>(element))
 	{
-		inline_level_box = parent_box->AddChild(MakeUnique<InlineLevelBox_Text>(text_element));
+		const auto* paragraph = paragraph_collector.Find(text_element);
+		inline_level_box = parent_box->AddChild(MakeUnique<InlineLevelBox_Text>(text_element, paragraph,
+			paragraph_collector.FindSpan(paragraph, text_element)));
 	}
 	else if (box.GetSize().x >= 0.f)
 	{
@@ -52,6 +55,10 @@ InlineBox* InlineContainer::AddInlineElement(Element* element, const Box& box)
 		inline_box = inline_box_ptr.get();
 		inline_level_box = parent_box->AddChild(std::move(inline_box_ptr));
 	}
+	if (auto text_element = rmlui_dynamic_cast<ElementText*>(element))
+		inline_level_box->SetParagraphGroup(paragraph_collector.Find(text_element));
+	else
+		inline_level_box->SetParagraphGroup(paragraph_collector.FindObject(element));
 
 	const float minimum_line_height =
 		Math::Max(element_line_height, (box.GetSize().y >= 0.f ? box.GetSizeAcross(BoxDirection::Vertical, BoxArea::Margin) : 0.f));

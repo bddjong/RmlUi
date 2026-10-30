@@ -127,4 +127,9 @@ void InlineBox::Submit(const PlacedFragment& placed_fragment)
 	}
 }
 
+void InlineBox::SubmitSlices(const Vector<PlacedFragment>& placed_fragments)
+{
+	for (const auto& fragment : placed_fragments) Submit(fragment);
+}
+
 } // namespace Rml

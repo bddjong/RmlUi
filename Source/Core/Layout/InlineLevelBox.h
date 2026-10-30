@@ -3,6 +3,7 @@
 #include "../../../Include/RmlUi/Core/Box.h"
 #include "../../../Include/RmlUi/Core/StyleTypes.h"
 #include "InlineTypes.h"
+#include "../TextParagraph.h"
 
 namespace Rml {
 
@@ -31,6 +32,9 @@ public:
 	float GetVerticalOffsetFromParent() const { return vertical_offset_from_parent; }
 	float GetSpacingLeft() const { return spacing_left; }
 	float GetSpacingRight() const { return spacing_right; }
+	Element* GetLayoutElement() const { return element; }
+	void SetParagraphGroup(const TextParagraphCollector::Group* value) { paragraph_group = value; }
+	const TextParagraphCollector::Group* GetParagraphGroup() const { return paragraph_group; }
 
 	virtual String DebugDumpNameValue() const = 0;
 	virtual String DebugDumpTree(int depth) const;
@@ -67,6 +71,7 @@ private:
 	float spacing_right = 0.f; // Right margin-border-padding for inline boxes.
 
 	Element* element;
+	const TextParagraphCollector::Group* paragraph_group = nullptr;
 };
 
 /**
@@ -96,20 +101,33 @@ private:
  */
 class InlineLevelBox_Text final : public InlineLevelBox {
 public:
-	InlineLevelBox_Text(ElementText* element);
+	InlineLevelBox_Text(ElementText* element, const TextParagraphCollector::Group* paragraph,
+		const TextParagraphCollector::Span* paragraph_span);
 
 	FragmentConstructor CreateFragment(InlineLayoutMode mode, float available_width, float right_spacing_width, bool first_box,
 		LayoutOverflowHandle overflow_handle) override;
 
 	void Submit(const PlacedFragment& placed_fragment) override;
+	void SubmitSlices(const Vector<PlacedFragment>& placed_fragments);
 
 	String DebugDumpNameValue() const override;
 
-private:
+	struct TextFragment {
+		String text;
+		int source_begin = 0;
+		int source_end = 0;
+	};
+	const TextFragment& GetFragment(LayoutFragmentHandle handle) const { return fragments[(size_t)handle]; }
 	ElementText* GetTextElement();
+	const TextParagraphCollector::Group* GetParagraph() const { return paragraph; }
+	const TextParagraphCollector::Span* GetParagraphSpan() const { return paragraph_span; }
 
+private:
+	static int MeasureParagraphText(void* userdata, StringView text, int source_begin, int source_end, Character prior_character);
 	Vector2f element_offset;
-	StringList fragments;
+	Vector<TextFragment> fragments;
+	const TextParagraphCollector::Group* paragraph;
+	const TextParagraphCollector::Span* paragraph_span;
 };
 
 } // namespace Rml

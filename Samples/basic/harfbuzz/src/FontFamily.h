@@ -33,9 +33,9 @@ public:
 	/// @param[in] ft_face The previously loaded FreeType face.
 	/// @param[in] style The style of the new face.
 	/// @param[in] weight The weight of the new face.
-	/// @param[in] face_memory Optionally pass ownership of the face's memory to the face itself, automatically releasing it on destruction.
-	/// @return True if the face was loaded successfully, false otherwise.
-	FontFace* AddFace(FontFaceHandleFreetype ft_face, Style::FontStyle style, Style::FontWeight weight, UniquePtr<byte[]> face_memory);
+	/// @param[in,out] face_memory Font data ownership is transferred only when a new face is added.
+	/// @return The new or existing matching face. Duplicate FreeType faces are released.
+	FontFace* AddFace(FontFaceHandleFreetype ft_face, Style::FontStyle style, Style::FontWeight weight, UniquePtr<byte[]>& face_memory);
 
 	/// Releases resources owned by sized font faces, including their textures and rendered glyphs.
 	void ReleaseFontResources();
@@ -43,12 +43,11 @@ public:
 protected:
 	String name;
 
-	struct FontFaceEntry {
-		UniquePtr<FontFace> face;
-		// Only filled if we own the memory used by the face's FreeType handle. May be shared with other faces in this family.
-		UniquePtr<byte[]> face_memory;
-	};
+	struct FontFaceEntry { UniquePtr<FontFace> face; };
 
 	using FontFaceList = Vector<FontFaceEntry>;
+	// Declared first so data remains alive until all faces and their HarfBuzz
+	// handles are destroyed. Named variations may share the same buffer.
+	Vector<UniquePtr<byte[]>> font_data;
 	FontFaceList font_faces;
 };

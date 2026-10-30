@@ -184,8 +184,9 @@ bool FontProvider::LoadFontFace(Span<const byte> data, int face_index, bool fall
 		const FontWeight variation_weight = (variation.weight == FontWeight::Auto ? weight : variation.weight);
 		const String font_face_description = Rml::GetFontFaceDescription(font_family, style, variation_weight);
 
-		if (!AddFace(ft_face, font_family, style, variation_weight, fallback_face, std::move(face_memory)))
+		if (!AddFace(ft_face, font_family, style, variation_weight, fallback_face, face_memory))
 		{
+			Rml::FreeType::ReleaseFace(ft_face);
 			Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to load font face %s from '%s'.", font_face_description.c_str(), source.c_str());
 			return false;
 		}
@@ -197,7 +198,7 @@ bool FontProvider::LoadFontFace(Span<const byte> data, int face_index, bool fall
 }
 
 bool FontProvider::AddFace(FontFaceHandleFreetype face, const String& family, Style::FontStyle style, Style::FontWeight weight,
-	bool fallback_face, UniquePtr<byte[]> face_memory)
+	bool fallback_face, UniquePtr<byte[]>& face_memory)
 {
 	if (family.empty() || weight == Style::FontWeight::Auto)
 		return false;
@@ -216,7 +217,7 @@ bool FontProvider::AddFace(FontFaceHandleFreetype face, const String& family, St
 		font_families[family_lower] = std::move(font_family_ptr);
 	}
 
-	FontFace* font_face_result = font_family->AddFace(face, style, weight, std::move(face_memory));
+	FontFace* font_face_result = font_family->AddFace(face, style, weight, face_memory);
 
 	if (font_face_result && fallback_face)
 	{

@@ -1,14 +1,14 @@
 #include "FontFamily.h"
 #include "FontFace.h"
 #include "FontFaceHandleHarfBuzz.h"
+#include "FontEngineDefault/FreeTypeInterface.h"
 #include <limits.h>
 
 FontFamily::FontFamily(const String& name) : name(name) {}
 
 FontFamily::~FontFamily()
 {
-	// Multiple face entries may share memory within a single font family, although only one of them owns it. Here we make sure that all the face
-	// destructors are run before all the memory is released. This way we don't leave any hanging references to invalidated memory.
+	// Faces must release their FreeType and HarfBuzz handles before font data.
 	for (FontFaceEntry& entry : font_faces)
 		entry.face.reset();
 }
@@ -45,12 +45,22 @@ FontFaceHandleHarfBuzz* FontFamily::GetFaceHandle(Style::FontStyle style, Style:
 	return matching_face->GetHandle(size, true);
 }
 
-FontFace* FontFamily::AddFace(FontFaceHandleFreetype ft_face, Style::FontStyle style, Style::FontWeight weight, UniquePtr<byte[]> face_memory)
+FontFace* FontFamily::AddFace(FontFaceHandleFreetype ft_face, Style::FontStyle style, Style::FontWeight weight, UniquePtr<byte[]>& face_memory)
 {
+	for (auto& entry : font_faces)
+	{
+		if (entry.face->GetStyle() == style && entry.face->GetWeight() == weight)
+		{
+			Rml::FreeType::ReleaseFace(ft_face);
+			return entry.face.get();
+		}
+	}
+	if (face_memory)
+		font_data.push_back(std::move(face_memory));
 	auto face = Rml::MakeUnique<FontFace>(ft_face, style, weight);
 	FontFace* result = face.get();
 
-	font_faces.push_back(FontFaceEntry{std::move(face), std::move(face_memory)});
+	font_faces.push_back(FontFaceEntry{std::move(face)});
 
 	return result;
 }

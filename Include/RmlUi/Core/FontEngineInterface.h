@@ -84,6 +84,13 @@ public:
 	/// @return The face's metrics.
 	virtual const FontMetrics& GetFontMetrics(FontFaceHandle handle);
 
+	/// Resolve the specified line of a logical paragraph into visual-order
+	/// bidi runs. Offsets and lengths use UTF-8 bytes in the full paragraph.
+	/// Return false when the engine does not support paragraph bidi; callers
+	/// then retain the existing logical-order layout.
+	virtual bool ResolveTextBidi(StringView paragraph, Style::Direction base_direction, size_t line_offset, size_t line_length,
+		Vector<TextBidiRun>& visual_runs);
+
 	/// Called by RmlUi when it wants to retrieve the width of a string when rendered with this handle.
 	/// @param[in] handle The font handle.
 	/// @param[in] string The string to measure.

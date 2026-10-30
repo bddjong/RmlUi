@@ -16,6 +16,13 @@ function(install_licenses)
 	configure_file("${PROJECT_SOURCE_DIR}/Source/Debugger/LICENSE.txt"
 		"${bin_licenses_dir}/LICENSE.Debugger.ThirdParty.txt" COPYONLY
 	)
+	file(MAKE_DIRECTORY "${bin_licenses_dir}/Dependencies")
+	configure_file("${PROJECT_SOURCE_DIR}/Dependencies/SheenBidi/LICENSE.txt"
+		"${bin_licenses_dir}/Dependencies/SheenBidi.LICENSE.txt" COPYONLY
+	)
+	configure_file("${PROJECT_SOURCE_DIR}/Dependencies/SheenBidi/NOTICE.txt"
+		"${bin_licenses_dir}/Dependencies/SheenBidi.NOTICE.txt" COPYONLY
+	)
 
 	if(VCPKG_TOOLCHAIN)
 		set(vcpkg_share_dir "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share")

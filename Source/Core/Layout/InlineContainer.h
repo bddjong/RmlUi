@@ -3,6 +3,7 @@
 #include "../../../Include/RmlUi/Core/Box.h"
 #include "../../../Include/RmlUi/Core/Types.h"
 #include "InlineBox.h"
+#include "../TextParagraph.h"
 #include "LayoutBox.h"
 
 namespace Rml {
@@ -80,6 +81,7 @@ private:
 	void UpdateLineBoxPlacement(LineBox* line_box, float minimum_width, float minimum_height);
 
 	BlockContainer* parent; // [not-null]
+	TextParagraphCollector paragraph_collector;
 
 	Vector2f position;
 	Vector2f box_size;

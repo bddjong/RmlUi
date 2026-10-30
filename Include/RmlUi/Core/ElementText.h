@@ -32,8 +32,10 @@ public:
 	/// @param[in] decode_escape_characters Decode escaped characters such as &amp; into &.
 	/// @param[in] allow_empty Allow no tokens to be consumed from the line.
 	/// @return True if the line reached the end of the element's text, false if not.
+	using TextWidthCallback = int (*)(void* userdata, StringView text, int source_begin, int source_end, Character prior_character);
 	bool GenerateLine(String& line, int& line_length, float& line_width, int line_begin, float maximum_line_width, float right_spacing_width,
-		bool trim_whitespace_prefix, bool decode_escape_characters, bool allow_empty);
+		bool trim_whitespace_prefix, bool decode_escape_characters, bool allow_empty, TextWidthCallback width_callback = nullptr,
+		void* width_userdata = nullptr);
 
 	/// Clears all lines of generated text and prepares the element for generating new lines.
 	void ClearLines();
@@ -41,6 +43,8 @@ public:
 	/// @param[in] line_position The position of this line, as an offset from the first line.
 	/// @param[in] line The contents of the line.
 	void AddLine(Vector2f line_position, String line);
+	void AddLine(Vector2f line_position, String line, SharedPtr<const String> paragraph, size_t paragraph_offset, Style::Direction direction,
+		size_t shaping_run_offset, size_t shaping_run_length);
 
 	/// Prevents the element from dirtying its document's layout when its text is changed.
 	void SuppressAutoLayout();
@@ -51,6 +55,11 @@ public:
 		String text;
 		Vector2f position;
 		int width;
+		SharedPtr<const String> paragraph;
+		size_t paragraph_offset = 0;
+		Style::Direction direction = Style::Direction::Auto;
+		size_t shaping_run_offset = 0;
+		size_t shaping_run_length = 0;
 	};
 
 	using LineList = Vector<Line>;

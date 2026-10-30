@@ -25,7 +25,8 @@ public:
 	IMPLEMENT_MOCK1(ReleaseGeometry);
 
 	IMPLEMENT_MOCK2(LoadTexture);
-	IMPLEMENT_MOCK2(GenerateTexture);
+	using Rml::RenderInterface::GenerateTexture;
+	MAKE_MOCK2(GenerateTexture, Rml::TextureHandle(Rml::Span<const Rml::byte>, Rml::Vector2i), override);
 	IMPLEMENT_MOCK1(ReleaseTexture);
 
 	IMPLEMENT_MOCK1(EnableScissorRegion);

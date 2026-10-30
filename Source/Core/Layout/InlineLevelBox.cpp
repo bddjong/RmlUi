@@ -5,6 +5,7 @@
 #include "../../../Include/RmlUi/Core/FontEngineInterface.h"
 #include "LayoutDetails.h"
 #include "LayoutPools.h"
+#include <algorithm>
 
 namespace Rml {
 
@@ -137,7 +138,51 @@ void InlineLevelBox_Atomic::Submit(const PlacedFragment& placed_fragment)
 	SubmitElementOnLayout();
 }
 
-InlineLevelBox_Text::InlineLevelBox_Text(ElementText* element) : InlineLevelBox(element) {}
+InlineLevelBox_Text::InlineLevelBox_Text(ElementText* element, const TextParagraphCollector::Group* _paragraph,
+	const TextParagraphCollector::Span* _paragraph_span) : InlineLevelBox(element), paragraph(_paragraph), paragraph_span(_paragraph_span) {}
+
+int InlineLevelBox_Text::MeasureParagraphText(void* userdata, StringView value, int source_begin, int source_end, Character prior_character)
+{
+	auto* self = static_cast<InlineLevelBox_Text*>(userdata);
+	if (!self->paragraph || !self->paragraph_span || source_begin < 0 || source_end < source_begin ||
+		(size_t)source_end >= self->paragraph_span->mapping.source_to_paragraph.size()) return -1;
+	const String& logical = self->paragraph->paragraph.GetText();
+	const String item(value.begin(), value.end());
+	size_t begin = 0;
+	if (!self->paragraph->paragraph.MatchFragment(self->paragraph_span->mapping, source_begin, source_end, value, begin)) return -1;
+	const size_t end = begin + item.size();
+	if (begin == end) return 0;
+	auto* engine = GetFontEngineInterface();
+	if (!engine || !self->paragraph->bidi_valid) return -1;
+	ElementText* element = self->GetTextElement();
+	const auto& style = element->GetComputedValues();
+	const auto face = element->GetFontFaceHandle();
+	int width = 0;
+	size_t covered = 0;
+	const auto& runs = self->paragraph->bidi_runs;
+	auto first_run = std::lower_bound(runs.begin(), runs.end(), begin,
+		[](const TextBidiRun& run, size_t offset) { return run.offset + run.length <= offset; });
+	for (auto it = first_run; it != runs.end() && it->offset < end; ++it) {
+		const auto& run = *it;
+		const size_t part_begin = Math::Max(begin, run.offset);
+		const size_t part_end = Math::Min(end, run.offset + run.length);
+		if (part_begin >= part_end) continue;
+		const size_t shape_begin = Math::Max(run.offset, self->paragraph_span->shaping_begin);
+		const size_t shape_end = Math::Min(run.offset + run.length, self->paragraph_span->shaping_end);
+		if (shape_begin > part_begin || shape_end < part_end) return -1;
+		TextShapingContext context{style.language(), run.direction, style.font_kerning(), style.letter_spacing()};
+		context.paragraph_text = logical;
+		context.paragraph_owner = self->paragraph->shared_text;
+		context.paragraph_offset = part_begin;
+		context.direction_resolved = true;
+		context.shaping_run_offset = shape_begin;
+		context.shaping_run_length = shape_end - shape_begin;
+		width += engine->GetStringWidth(face, StringView(logical, part_begin, part_end - part_begin), context,
+			part_begin == begin ? prior_character : Character::Null);
+		covered += part_end - part_begin;
+	}
+	return covered == item.size() ? width : -1;
+}
 
 FragmentConstructor InlineLevelBox_Text::CreateFragment(InlineLayoutMode mode, float available_width, float right_spacing_width, bool first_box,
 	LayoutOverflowHandle in_overflow_handle)
@@ -151,8 +196,9 @@ FragmentConstructor InlineLevelBox_Text::CreateFragment(InlineLayoutMode mode, f
 	int line_begin = in_overflow_handle;
 	int line_length = 0;
 	float line_width = 0.f;
-	bool overflow = !text_element->GenerateLine(line_contents, line_length, line_width, line_begin, available_width, right_spacing_width, first_box,
-		decode_escape_characters, allow_empty);
+	const bool trim_prefix = first_box || (line_begin == 0 && paragraph_span && paragraph_span->collapse_leading_space);
+	bool overflow = !text_element->GenerateLine(line_contents, line_length, line_width, line_begin, available_width, right_spacing_width, trim_prefix,
+		decode_escape_characters, allow_empty, paragraph && paragraph_span ? &InlineLevelBox_Text::MeasureParagraphText : nullptr, this);
 
 	if (overflow && line_contents.empty())
 		// We couldn't fit anything on this line.
@@ -163,7 +209,7 @@ FragmentConstructor InlineLevelBox_Text::CreateFragment(InlineLayoutMode mode, f
 		out_overflow_handle = line_begin + line_length;
 
 	LayoutFragmentHandle fragment_handle = (LayoutFragmentHandle)fragments.size();
-	fragments.push_back(std::move(line_contents));
+	fragments.push_back({std::move(line_contents), line_begin, line_begin + line_length});
 
 	return FragmentConstructor{FragmentType::TextRun, line_width, fragment_handle, out_overflow_handle};
 }
@@ -189,7 +235,32 @@ void InlineLevelBox_Text::Submit(const PlacedFragment& placed_fragment)
 		line_offset = placed_fragment.position - element_offset;
 	}
 
-	text_element->AddLine(line_offset, std::move(fragments[fragment_index]));
+	if (placed_fragment.paragraph) {
+		text_element->AddLine(line_offset, std::move(fragments[fragment_index].text), placed_fragment.paragraph,
+			placed_fragment.paragraph_offset, placed_fragment.direction, placed_fragment.shaping_run_offset,
+			placed_fragment.shaping_run_length);
+	} else {
+		text_element->AddLine(line_offset, std::move(fragments[fragment_index].text));
+	}
+}
+
+void InlineLevelBox_Text::SubmitSlices(const Vector<PlacedFragment>& placed_fragments)
+{
+	if (placed_fragments.empty()) return;
+	const int fragment_index = (int)placed_fragments.front().handle;
+	RMLUI_ASSERT(fragment_index >= 0 && (size_t)fragment_index < fragments.size());
+	ElementText* text_element = GetTextElement();
+	if (fragment_index == 0) {
+		element_offset = placed_fragments.front().position;
+		text_element->SetOffset(element_offset, placed_fragments.front().offset_parent);
+		text_element->ClearLines();
+	}
+	const String& text = fragments[(size_t)fragment_index].text;
+	for (const auto& piece : placed_fragments) {
+		RMLUI_ASSERT(piece.handle == fragment_index && piece.paragraph && piece.text_offset + piece.text_length <= text.size());
+		text_element->AddLine(piece.position - element_offset, text.substr(piece.text_offset, piece.text_length), piece.paragraph,
+			piece.paragraph_offset, piece.direction, piece.shaping_run_offset, piece.shaping_run_length);
+	}
 }
 
 String InlineLevelBox_Text::DebugDumpNameValue() const

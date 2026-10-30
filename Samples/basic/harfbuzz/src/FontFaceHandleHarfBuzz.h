@@ -38,6 +38,9 @@ public:
 	bool Initialize(FontFaceHandleFreetype face, int font_size, bool load_default_glyphs);
 
 	const FontMetrics& GetFontMetrics() const;
+	bool SupportsCharacter(Character character) const;
+	// Diagnostics for verifying that styled spans reuse paragraph shaping.
+	size_t GetShapingInvocationCount() const { return shaping_invocations; }
 
 	const FontGlyphMap& GetGlyphs() const;
 	const FallbackFontGlyphMap& GetFallbackGlyphs() const;
@@ -133,6 +136,10 @@ private:
 	/// @param[out] determined_text_direction  The text direction that was used to shape the buffer.
 	void ConfigureTextShapingBuffer(struct hb_buffer_t* shaping_buffer, StringView string, const TextShapingContext& text_shaping_context,
 		const LanguageDataMap& registered_languages, TextFlowDirection* determined_text_direction) const;
+	struct ShapingCache;
+	ShapingCache& ShapeText(StringView string, const TextShapingContext& context, const LanguageDataMap& registered_languages);
+	UniquePtr<ShapingCache> shaping_cache;
+	size_t shaping_invocations = 0;
 
 	/// Creates a cluster string from shaped glyph info and index.
 	/// @param[in] glyph_info  The shaped glyph info list (supplied by HarfBuzz).

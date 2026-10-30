@@ -40,6 +40,7 @@ public:
 		LayoutOverflowHandle overflow_handle) override;
 
 	void Submit(const PlacedFragment& placed_fragment) override;
+	void SubmitSlices(const Vector<PlacedFragment>& placed_fragments);
 
 	String DebugDumpNameValue() const override { return "InlineBox"; }
 
