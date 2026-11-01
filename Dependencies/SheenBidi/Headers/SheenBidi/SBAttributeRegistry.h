@@ -50,6 +50,8 @@ SB_PUBLIC SBAttributeRegistryRef SBAttributeRegistryCreate(const SBAttributeInfo
 
 /**
  * Copies the info for a given attribute ID into the `attributeInfo` parameter.
+ * IDs encode an index and value size, not registry identity. An ID from another
+ * registry with the same index and value size identifies the local entry.
  * 
  * @param registry
  *      The attribute registry object.

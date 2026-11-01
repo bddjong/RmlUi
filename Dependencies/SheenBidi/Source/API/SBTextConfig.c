@@ -53,14 +53,13 @@ SBTextConfigRef SBTextConfigCreate(void)
 void SBTextConfigSetAttributeRegistry(SBTextConfigRef config,
     SBAttributeRegistryRef attributeRegistry)
 {
+    if (attributeRegistry) {
+        SBAttributeRegistryRetain(attributeRegistry);
+    }
     if (config->attributeRegistry) {
         SBAttributeRegistryRelease(config->attributeRegistry);
-        config->attributeRegistry = NULL;
     }
-
-    if (attributeRegistry) {
-        config->attributeRegistry = SBAttributeRegistryRetain(attributeRegistry);
-    }
+    config->attributeRegistry = attributeRegistry;
 }
 
 void SBTextConfigSetBaseLevel(SBTextConfigRef config, SBLevel baseLevel)

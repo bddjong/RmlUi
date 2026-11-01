@@ -63,9 +63,11 @@ int main(int /*argc*/, char** /*argv*/)
 		context->Update();
 
 		// Prepare the backend for taking rendering commands from RmlUi and then render the context.
-		Backend::BeginFrame();
-		context->Render();
-		Backend::PresentFrame();
+		if (Backend::BeginFrame())
+		{
+			context->Render();
+			Backend::PresentFrame();
+		}
 	}
 
 	// Shutdown RmlUi.

@@ -26,7 +26,7 @@ void BaseXMLParser::RegisterInnerXMLAttribute(const String& attribute_name)
 	attributes_for_inner_xml_data.insert(attribute_name);
 }
 
-void BaseXMLParser::Parse(Stream* stream)
+bool BaseXMLParser::Parse(Stream* stream)
 {
 	source_url = &stream->GetSourceURL();
 
@@ -47,13 +47,14 @@ void BaseXMLParser::Parse(Stream* stream)
 	inner_xml_data_terminate_depth = 0;
 	inner_xml_data_index_begin = 0;
 
-	// Read (er ... skip) the header, if one exists.
-	ReadHeader();
-	// Read the XML body.
-	ReadBody();
+	data.clear();
+	open_tags.clear();
+	// Read (er ... skip) the header, then the XML body.
+	const bool success = ReadHeader() && ReadBody();
 
 	xml_source.clear();
 	source_url = nullptr;
+	return success;
 }
 
 int BaseXMLParser::GetLineNumber() const
@@ -112,22 +113,24 @@ void BaseXMLParser::HandleDataInternal(const String& data, XMLDataType type)
 		HandleData(data, type);
 }
 
-void BaseXMLParser::ReadHeader()
+bool BaseXMLParser::ReadHeader()
 {
 	if (PeekString("<?"))
 	{
 		String temp;
-		FindString(">", temp);
+		return FindString(">", temp);
 	}
+	return true;
 }
 
-void BaseXMLParser::ReadBody()
+bool BaseXMLParser::ReadBody()
 {
 	RMLUI_ZoneScoped;
 
 	open_tag_depth = 0;
 	line_number_open_tag = 0;
 
+	bool success = true;
 	for (;;)
 	{
 		// Find the next open tag.
@@ -142,19 +145,28 @@ void BaseXMLParser::ReadBody()
 			// Comment.
 			String temp;
 			if (!FindString("-->", temp))
+			{
+				success = false;
 				break;
+			}
 		}
 		else if (PeekString("![CDATA["))
 		{
 			// CDATA tag; read everything (including markup) until the ending
 			// CDATA tag.
 			if (!ReadCDATA())
+			{
+				success = false;
 				break;
+			}
 		}
 		else if (PeekString("/"))
 		{
 			if (!ReadCloseTag(xml_index_tag))
+			{
+				success = false;
 				break;
+			}
 
 			// Bail if we've hit the end of the XML data.
 			if (open_tag_depth == 0)
@@ -163,7 +175,10 @@ void BaseXMLParser::ReadBody()
 		else
 		{
 			if (!ReadOpenTag())
+			{
+				success = false;
 				break;
+			}
 		}
 	}
 
@@ -171,6 +186,7 @@ void BaseXMLParser::ReadBody()
 	{
 		Log::Message(Log::LT_WARNING, "XML parse error on line %d of %s.", GetLineNumber(), source_url->GetURL().c_str());
 	}
+	return success && open_tag_depth == 0;
 }
 
 bool BaseXMLParser::ReadOpenTag()
@@ -240,6 +256,9 @@ bool BaseXMLParser::ReadOpenTag()
 		}
 	}
 
+	if (section_opened)
+		open_tags.push_back(StringUtilities::ToLower(tag_name));
+
 	// Check if this tag needs to be processed as CDATA.
 	if (section_opened)
 	{
@@ -248,6 +267,7 @@ bool BaseXMLParser::ReadOpenTag()
 			if (ReadCDATA(StringUtilities::ToLower(tag_name).c_str()))
 			{
 				open_tag_depth--;
+				open_tags.pop_back();
 				if (!data.empty())
 				{
 					HandleDataInternal(data, XMLDataType::CDATA);
@@ -273,6 +293,14 @@ bool BaseXMLParser::ReadCloseTag(const size_t xml_index_tag)
 		return false;
 	}
 
+	String tag_name;
+	if (!FindString(">", tag_name))
+		return false;
+	tag_name = StringUtilities::StripWhitespace(tag_name);
+	if (open_tags.empty() || open_tags.back() != StringUtilities::ToLower(tag_name))
+		return false;
+	open_tags.pop_back();
+
 	if (inner_xml_data && open_tag_depth == inner_xml_data_terminate_depth)
 	{
 		// Closing the tag that initiated the inner xml data parsing. Set all its contents as Data to be
@@ -291,11 +319,7 @@ bool BaseXMLParser::ReadCloseTag(const size_t xml_index_tag)
 		data.clear();
 	}
 
-	String tag_name;
-	if (!FindString(">", tag_name))
-		return false;
-
-	HandleElementEndInternal(StringUtilities::StripWhitespace(tag_name));
+	HandleElementEndInternal(tag_name);
 
 	// Tag closed, reduce count
 	open_tag_depth--;
@@ -351,9 +375,9 @@ bool BaseXMLParser::ReadCDATA(const char* tag_terminator)
 	String cdata;
 	if (tag_terminator == nullptr)
 	{
-		FindString("]]>", cdata);
+		const bool success = FindString("]]>", cdata);
 		data += cdata;
-		return true;
+		return success;
 	}
 	else
 	{

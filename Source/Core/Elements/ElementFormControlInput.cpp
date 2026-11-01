@@ -97,6 +97,7 @@ void ElementFormControlInput::OnAttributeChange(const ElementAttributes& changed
 		new_type_name = it_type->second.Get<String>("text");
 	}
 
+	bool type_replaced = false;
 	if (!type || (!new_type_name.empty() && new_type_name != type_name))
 	{
 		// Reset the existing type before constructing a new one. This ensures the old type removes properties and event
@@ -126,12 +127,14 @@ void ElementFormControlInput::OnAttributeChange(const ElementAttributes& changed
 		SetClass(new_type_name, true);
 		type_name = new_type_name;
 
+		type_replaced = true;
 		DirtyLayout();
 	}
 
 	RMLUI_ASSERT(type);
 
-	if (!type->OnAttributeChange(changed_attributes))
+	const ElementAttributes attributes = type_replaced ? GetAttributes() : changed_attributes;
+	if (!type->OnAttributeChange(attributes))
 		DirtyLayout();
 }
 

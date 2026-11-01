@@ -30,7 +30,7 @@ int main(int /*argc*/, char** /*argv*/)
 	Rml::SetRenderInterface(Backend::GetRenderInterface());
 
 	// Initialize our custom system interface to write the log messages to file.
-	SystemInterface system_interface;
+	SystemInterface system_interface(Backend::GetSystemInterface());
 	Rml::SetSystemInterface(&system_interface);
 
 	// RmlUi initialisation.
@@ -71,9 +71,11 @@ int main(int /*argc*/, char** /*argv*/)
 
 		context->Update();
 
-		Backend::BeginFrame();
-		context->Render();
-		Backend::PresentFrame();
+		if (Backend::BeginFrame())
+		{
+			context->Render();
+			Backend::PresentFrame();
+		}
 	}
 
 	// Shutdown RmlUi.

@@ -62,11 +62,17 @@ bool Interpreter::LoadFile(const String& file)
 	if (size == 0)
 	{
 		Log::Message(Log::LT_WARNING, "LoadFile: File is 0 bytes in size: %s", file.c_str());
+		file_interface->Close(handle);
 		return false;
 	}
 	UniquePtr<char[]> file_contents(new char[size]);
-	file_interface->Read(file_contents.get(), size, handle);
+	size_t bytes_read = file_interface->Read(file_contents.get(), size, handle);
 	file_interface->Close(handle);
+	if (bytes_read != size)
+	{
+		Log::Message(Log::LT_WARNING, "LoadFile: Unable to read entire file: %s", file.c_str());
+		return false;
+	}
 
 	if (luaL_loadbuffer(L, file_contents.get(), size, ("@" + file).c_str()) != 0)
 	{

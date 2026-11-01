@@ -30,7 +30,7 @@ struct FramebufferData;
  *    Uploads go through a staging buffer and are fully synchronous, like the DX12 copy-queue path.
  *  - RenderLayerStack: layer framebuffers (optionally MSAA, sharing one depth-stencil) and postprocess
  *    framebuffers (single-sample), matching the DX12 render target stack.
- *  - 23 pipelines (ProgramId) with identical blend/depth-stencil state as the DX12 PSOs. Stencil reference and
+ *  - 25 pipelines (ProgramId) with identical blend/depth-stencil state as the DX12 PSOs. Stencil reference and
  *    blend constants are dynamic state (the analog of OMSetStencilRef / OMSetBlendFactor).
  *  - DX12 resource state barriers map to Vulkan image layout transitions; ResolveSubresource/CopyResource map to
  *    vkCmdResolveImage/vkCmdCopyImage; OMSetRenderTargets maps to ending/beginning render passes.
@@ -48,7 +48,7 @@ struct FramebufferData;
 class RenderInterface_VK : public Rml::RenderInterface {
 private:
 	// Amount of rendering programs (ProgramId::Count), kept identical to the DX12 renderer.
-	static constexpr size_t NumPrograms = 23;
+	static constexpr size_t NumPrograms = 25;
 
 public:
 	static constexpr uint32_t kSwapchainBackBufferCount = 3;
@@ -498,7 +498,8 @@ public:
 	bool Initialize(Rml::Vector<const char*> required_extensions, CreateSurfaceCallback create_surface_callback);
 	void Shutdown();
 
-	void BeginFrame();
+	// Render and call EndFrame only when BeginFrame succeeds.
+	bool BeginFrame();
 	void EndFrame();
 
 	// The viewport should be updated whenever the window size changes.
@@ -563,7 +564,7 @@ private:
 	Rml::TextureHandle CreateTexture(Rml::Span<const Rml::byte> source, Rml::Vector2i dimensions, const Rml::String& name);
 
 	void Initialize_Instance(Rml::Vector<const char*> required_extensions) noexcept;
-	void Initialize_Device() noexcept;
+	bool Initialize_Device() noexcept;
 	void Initialize_PhysicalDevice(VkPhysicalDeviceProperties& out_physical_device_properties) noexcept;
 	void Initialize_Swapchain(VkExtent2D window_extent) noexcept;
 	void Initialize_Surface(CreateSurfaceCallback create_surface_callback) noexcept;
@@ -659,7 +660,7 @@ private:
 	void DestroySamplers() noexcept;
 	void Destroy_Shaders() noexcept;
 
-	void Wait() noexcept;
+	bool Wait() noexcept;
 
 	void Update_PendingForDeletion_Textures() noexcept;
 	void Update_PendingForDeletion_Geometries() noexcept;
@@ -743,6 +744,8 @@ private:
 	uint32_t m_queue_index_compute;
 	uint32_t m_semaphore_index;
 	uint32_t m_semaphore_index_previous;
+	bool m_surface_available = true;
+	bool m_recreate_after_present = false;
 	uint32_t m_image_index;
 
 	// Monotonically increasing count of submitted frames; deferred-deletion entries are stamped with it.

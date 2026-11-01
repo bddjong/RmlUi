@@ -10,12 +10,14 @@
 namespace Rml {
 
 struct BoxShadowCacheData {
-	StableUnorderedMap<BoxShadowGeometryInfo, WeakPtr<BoxShadowRenderable>> handles;
+	using Handles = StableUnorderedMap<BoxShadowGeometryInfo, WeakPtr<BoxShadowRenderable>>;
+	SmallUnorderedMap<RenderManager*, Handles> managers;
 };
 
 static void ReleaseHandle(BoxShadowRenderable* handle);
 
-BoxShadowRenderable::BoxShadowRenderable(const BoxShadowGeometryInfo& geometry_info) : cache_key(geometry_info) {}
+BoxShadowRenderable::BoxShadowRenderable(RenderManager& manager, const BoxShadowGeometryInfo& geometry_info) :
+	cache_key(&geometry_info), render_manager(&manager) {}
 
 BoxShadowRenderable::~BoxShadowRenderable()
 {
@@ -31,26 +33,29 @@ void BoxShadowCache::Initialize()
 
 void BoxShadowCache::Shutdown()
 {
+	while (!shadow_cache_data->managers.empty())
+		ReleaseRenderManager(shadow_cache_data->managers.begin()->first);
 	shadow_cache_data.Shutdown();
 }
 
 static SharedPtr<BoxShadowRenderable> GetOrCreateBoxShadow(RenderManager& render_manager, const BoxShadowGeometryInfo& info)
 {
 	RMLUI_ZoneScoped;
-	auto it_handle = shadow_cache_data->handles.find(info);
-	if (it_handle != shadow_cache_data->handles.end())
+	auto& handles = shadow_cache_data->managers[&render_manager];
+	auto it_handle = handles.find(info);
+	if (it_handle != handles.end())
 	{
 		SharedPtr<BoxShadowRenderable> result = it_handle->second.lock();
 		RMLUI_ASSERTMSG(result, "Failed to lock handle in Box Shadow cache");
 		return result;
 	}
 
-	const auto iterator_inserted = shadow_cache_data->handles.emplace(info, WeakPtr<BoxShadowRenderable>());
+	const auto iterator_inserted = handles.emplace(info, WeakPtr<BoxShadowRenderable>());
 	RMLUI_ASSERTMSG(iterator_inserted.second, "Could not insert entry into the Box Shadow cache handle map, duplicate key.");
 	const BoxShadowGeometryInfo& inserted_key = iterator_inserted.first->first;
 	WeakPtr<BoxShadowRenderable>& inserted_weak_data_pointer = iterator_inserted.first->second;
 
-	auto shadow_handle = MakeShared<BoxShadowRenderable>(inserted_key);
+	auto shadow_handle = MakeShared<BoxShadowRenderable>(render_manager, inserted_key);
 	GeometryBoxShadow::GenerateTexture(shadow_handle->texture, shadow_handle->background_border_geometry, render_manager, inserted_key);
 
 	Mesh mesh;
@@ -64,16 +69,36 @@ static SharedPtr<BoxShadowRenderable> GetOrCreateBoxShadow(RenderManager& render
 
 static void ReleaseHandle(BoxShadowRenderable* handle)
 {
-	// There are no longer any users of the cache entry uniquely identified by the handle address. Start from the
-	// tip (i.e. per-color data) and remove that entry from its parent. Move up the cache ancestry and erase any
-	// entries that no longer have any children.
-	auto& handles = shadow_cache_data->handles;
-	const BoxShadowGeometryInfo& key = handle->cache_key;
+	if (!handle->cache_key)
+		return;
+	auto manager_it = shadow_cache_data->managers.find(handle->render_manager);
+	RMLUI_ASSERT(manager_it != shadow_cache_data->managers.end());
+	auto& handles = manager_it->second;
+	auto it = handles.find(*handle->cache_key);
+	RMLUI_ASSERT(it != handles.end());
+	handles.erase(it);
+	if (handles.empty())
+		shadow_cache_data->managers.erase(manager_it);
+}
 
-	auto it_handle = handles.find(key);
-	RMLUI_ASSERT(it_handle != handles.cend());
-
-	handles.erase(it_handle);
+void BoxShadowCache::ReleaseRenderManager(RenderManager* render_manager)
+{
+	if (!shadow_cache_data)
+		return;
+	auto manager_it = shadow_cache_data->managers.find(render_manager);
+	if (manager_it == shadow_cache_data->managers.end())
+		return;
+	for (auto& entry : manager_it->second)
+	{
+		if (auto handle = entry.second.lock())
+		{
+			handle->cache_key = nullptr;
+			handle->texture.Release();
+			handle->geometry.Release();
+			handle->background_border_geometry.Release();
+		}
+	}
+	shadow_cache_data->managers.erase(manager_it);
 }
 
 SharedPtr<BoxShadowRenderable> BoxShadowCache::GetHandle(Element* element, const ComputedValues& computed)

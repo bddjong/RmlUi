@@ -25,13 +25,14 @@ namespace Rml {
 namespace SVG {
 	struct SVGKey {
 		String source_id;
+		RenderManager* render_manager;
 		Vector2i dimensions;
 		bool crop_to_content;
 		ColourbPremultiplied colour;
 
 		friend bool operator==(const SVGKey& lhs, const SVGKey& rhs)
 		{
-			return lhs.source_id == rhs.source_id && lhs.dimensions == rhs.dimensions && lhs.crop_to_content == rhs.crop_to_content &&
+			return lhs.source_id == rhs.source_id && lhs.render_manager == rhs.render_manager && lhs.dimensions == rhs.dimensions && lhs.crop_to_content == rhs.crop_to_content &&
 				lhs.colour == rhs.colour;
 		}
 	};
@@ -45,6 +46,7 @@ struct hash<::Rml::SVG::SVGKey> {
 	{
 		size_t hash = 0;
 		Rml::Utilities::HashCombine(hash, key.source_id);
+		Rml::Utilities::HashCombine(hash, key.render_manager);
 		Rml::Utilities::HashCombine(hash, key.dimensions.x);
 		Rml::Utilities::HashCombine(hash, key.dimensions.y);
 		Rml::Utilities::HashCombine(hash, key.crop_to_content);
@@ -68,6 +70,7 @@ namespace SVG {
 	};
 
 	struct SVGTexture {
+		RenderManager* render_manager;
 		Vector2i render_dimensions;
 		bool crop_to_content;
 		CallbackTexture texture;
@@ -103,10 +106,10 @@ namespace SVG {
 		ReleaseHandle(this);
 	}
 
-	static Vector<SVGTexture>::iterator FindSVGTexture(SVGDocument& doc, Vector2i dimensions, bool crop_to_content)
+	static Vector<SVGTexture>::iterator FindSVGTexture(SVGDocument& doc, RenderManager* render_manager, Vector2i dimensions, bool crop_to_content)
 	{
 		return std::find_if(doc.textures.begin(), doc.textures.end(),
-			[&](const auto& entry) { return entry.render_dimensions == dimensions && entry.crop_to_content == crop_to_content; });
+			[&](const auto& entry) { return entry.render_manager == render_manager && entry.render_dimensions == dimensions && entry.crop_to_content == crop_to_content; });
 	}
 
 	static Vector<SVGGeometry>::iterator FindSVGGeometry(SVGTexture& per_size_data, const ColourbPremultiplied colour)
@@ -128,7 +131,7 @@ namespace SVG {
 	static SharedPtr<SVGData> GetHandle(RenderManager& render_manager, String move_from_id, const String& source, SVGCache::SourceType source_type,
 		const Vector2i dimensions, const bool crop_to_content, const ColourbPremultiplied colour)
 	{
-		SVGKey key{std::move(move_from_id), dimensions, crop_to_content, colour};
+		SVGKey key{std::move(move_from_id), &render_manager, dimensions, crop_to_content, colour};
 		const String& source_id = key.source_id;
 		auto& documents = svg_cache_data->documents;
 		auto& handles = svg_cache_data->handles;
@@ -199,12 +202,13 @@ namespace SVG {
 		}
 
 		// Find or create texture
-		auto it_size = FindSVGTexture(doc, dimensions, crop_to_content);
+		auto it_size = FindSVGTexture(doc, &render_manager, dimensions, crop_to_content);
 		if (it_size == doc.textures.cend())
 		{
 			RMLUI_SVG_DEBUG_LOG("Creating per-size data for (%d, %d), %s", dimensions.x, dimensions.y,
 				crop_to_content ? "crop_to_content" : "crop_none");
 			SVGTexture svg_texture;
+			svg_texture.render_manager = &render_manager;
 			svg_texture.render_dimensions = dimensions;
 			svg_texture.crop_to_content = crop_to_content;
 			svg_texture.texture = {};
@@ -304,10 +308,10 @@ namespace SVG {
 		RMLUI_ASSERT(it_document != documents.cend());
 		SVGDocument& svg_document = it_document->second;
 
-		RMLUI_SVG_DEBUG_LOG("Releasing handle: %s, (%d, %d), %s, %#x", key.path.c_str(), key.dimensions.x, key.dimensions.y,
+		RMLUI_SVG_DEBUG_LOG("Releasing handle: %s, (%d, %d), %s, %#x", key.source_id.c_str(), key.dimensions.x, key.dimensions.y,
 			key.crop_to_content ? "crop_to_content" : "crop_none", *reinterpret_cast<const uint32_t*>(&key.colour[0]));
 
-		auto it_texture = FindSVGTexture(svg_document, key.dimensions, key.crop_to_content);
+		auto it_texture = FindSVGTexture(svg_document, key.render_manager, key.dimensions, key.crop_to_content);
 		RMLUI_ASSERT(it_texture != svg_document.textures.cend());
 		SVGTexture& svg_texture = *it_texture;
 

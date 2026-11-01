@@ -84,6 +84,8 @@ size_t StreamMemory::Peek(void* _buffer, size_t bytes) const
 
 size_t StreamMemory::Write(const void* _buffer, size_t bytes)
 {
+	if (!owns_buffer)
+		return 0;
 	if (buffer_ptr + bytes > buffer + buffer_size)
 		if (!Reallocate(bytes + BUFFER_INCREMENTS))
 			return 0;
@@ -109,26 +111,37 @@ size_t StreamMemory::Truncate(size_t bytes)
 
 bool StreamMemory::Seek(long offset, int origin) const
 {
-	byte* new_ptr = nullptr;
-
+	size_t base;
 	switch (origin)
 	{
-	case SEEK_SET: new_ptr = buffer + offset; break;
-	case SEEK_END: new_ptr = buffer + (buffer_used - offset); break;
-	case SEEK_CUR: new_ptr = buffer_ptr + offset;
+	case SEEK_SET: base = 0; break;
+	case SEEK_END: base = buffer_used; break;
+	case SEEK_CUR: base = Tell(); break;
+	default: return false;
 	}
 
-	// Check of overruns
-	if (new_ptr < buffer || new_ptr > buffer + buffer_used)
-		return false;
-
-	buffer_ptr = new_ptr;
-
+	size_t position;
+	if (offset < 0)
+	{
+		const size_t magnitude = size_t(-(offset + 1)) + 1;
+		if (magnitude > base)
+			return false;
+		position = base - magnitude;
+	}
+	else
+	{
+		if (size_t(offset) > buffer_used - base)
+			return false;
+		position = base + size_t(offset);
+	}
+	buffer_ptr = buffer + position;
 	return true;
 }
 
 size_t StreamMemory::PushFront(const void* _buffer, size_t bytes)
 {
+	if (!owns_buffer)
+		return 0;
 	if (buffer_used + bytes > buffer_size)
 		if (!Reallocate(bytes + BUFFER_INCREMENTS))
 			return 0;
@@ -142,9 +155,12 @@ size_t StreamMemory::PushFront(const void* _buffer, size_t bytes)
 
 size_t StreamMemory::PopFront(size_t bytes)
 {
+	if (!owns_buffer)
+		return 0;
+	bytes = Math::Min(bytes, buffer_used);
+	size_t position = Tell();
 	Erase(0, bytes);
-	buffer_ptr -= bytes;
-	buffer_ptr = Math::Max(buffer_ptr, buffer);
+	buffer_ptr = buffer + (position > bytes ? position - bytes : 0);
 	return bytes;
 }
 
@@ -155,6 +171,8 @@ const byte* StreamMemory::RawStream() const
 
 void StreamMemory::Erase(size_t offset, size_t bytes)
 {
+	if (!owns_buffer || offset > buffer_used)
+		return;
 	bytes = Math::Min(bytes, buffer_used - offset);
 	memmove(&buffer[offset], &buffer[offset + bytes], buffer_used - offset - bytes);
 	buffer_used -= bytes;
@@ -167,7 +185,7 @@ bool StreamMemory::IsReadReady()
 
 bool StreamMemory::IsWriteReady()
 {
-	return true;
+	return owns_buffer;
 }
 
 void StreamMemory::SetSourceURL(const URL& url)

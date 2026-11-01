@@ -89,8 +89,8 @@ Rml::CompiledGeometryHandle TestsRenderInterface::CompileGeometry(Rml::Span<cons
 		meshes.erase(meshes.begin());
 		INFO("Expected mesh:\n", mesh);
 
-		CHECK(mesh.vertices.size() == vertices.size());
-		CHECK(mesh.indices.size() == indices.size());
+		REQUIRE(mesh.vertices.size() == vertices.size());
+		REQUIRE(mesh.indices.size() == indices.size());
 
 		for (size_t i = 0; i < mesh.vertices.size(); i++)
 		{

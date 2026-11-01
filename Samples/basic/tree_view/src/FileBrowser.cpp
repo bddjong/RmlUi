@@ -29,7 +29,7 @@ static void BuildTree(const Rml::String& current_directory, int current_depth)
 		files.push_back(File(true, current_depth, directory));
 
 		// Recurse into the child directory
-		const Rml::String next_directory = current_directory + directory + '/';
+		const Rml::String next_directory = current_directory + (current_directory.empty() || current_directory.back() == '/' || current_directory.back() == '\\' ? "" : "/") + directory + '/';
 		BuildTree(next_directory, current_depth + 1);
 	}
 

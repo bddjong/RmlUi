@@ -8,6 +8,7 @@
 #include <RmlUi/Core/MeshUtilities.h>
 #include <RmlUi/Core/Platform.h>
 #include <RmlUi/Core/SystemInterface.h>
+#include <new>
 
 // Helper for a common cleanup pattern in DX11
 template <typename T>
@@ -566,14 +567,13 @@ static bool CreateShader(ID3DBlob*& out_shader_dxil, ShaderType shader_type, con
 
 	HRESULT result = D3DCompile(code_string, code_length, nullptr, nullptr, nullptr, shader_type == ShaderType::Vertex ? "VSMain" : "PSMain",
 		shader_type == ShaderType::Vertex ? "vs_5_0" : "ps_5_0", default_shader_flags, 0, &out_shader_dxil, &p_error_buff);
-	RMLUI_DX_ASSERTMSG(result, "failed to D3DCompile");
-#ifdef RMLUI_DX_DEBUG
 	if (FAILED(result))
 	{
-		Rml::Log::Message(Rml::Log::Type::LT_ERROR, "failed to compile shader: %s", (char*)p_error_buff->GetBufferPointer());
+		Rml::Log::Message(Rml::Log::Type::LT_ERROR, "failed to compile shader: %s",
+			p_error_buff ? (const char*)p_error_buff->GetBufferPointer() : "no compiler diagnostic");
+		Dx11CleanupResourceIfCreated(p_error_buff);
 		return false;
 	}
-#endif
 
 	Dx11CleanupResourceIfCreated(p_error_buff);
 
@@ -587,7 +587,6 @@ static bool CreateProgram(ID3D11Device* p_device, ShaderProgram& out_program, ID
 
 	HRESULT result =
 		p_device->CreateVertexShader(vertex_shader->GetBufferPointer(), vertex_shader->GetBufferSize(), nullptr, &out_program.vertex_shader);
-	RMLUI_DX_ASSERTMSG(result, "failed to CreateVertexShader");
 	if (FAILED(result))
 	{
 #ifdef RMLUI_DX_DEBUG
@@ -597,7 +596,6 @@ static bool CreateProgram(ID3D11Device* p_device, ShaderProgram& out_program, ID
 	}
 
 	result = p_device->CreatePixelShader(fragment_shader->GetBufferPointer(), fragment_shader->GetBufferSize(), nullptr, &out_program.pixel_shader);
-	RMLUI_DX_ASSERTMSG(result, "failed to CreatePixelShader");
 	if (FAILED(result))
 	{
 #ifdef RMLUI_DX_DEBUG
@@ -814,21 +812,35 @@ static void DestroyShaders(const ProgramData& data)
 
 } // namespace Gfx
 
-RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
+RenderInterface_DX11::RenderInterface_DX11() = default;
+
+RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device) : RenderInterface_DX11()
 {
-	RMLUI_ASSERTMSG(p_d3d_device, "p_d3d_device cannot be nullptr!");
+	if (!Initialize(p_d3d_device))
+		throw DX11InitializationError();
+}
+
+bool RenderInterface_DX11::Initialize(ID3D11Device* p_d3d_device)
+{
+	if (!p_d3d_device)
+		return false;
 
 	// Assign D3D resources
 	m_d3d_device = p_d3d_device;
 	m_d3d_device->AddRef();
-	m_d3d_device->QueryInterface(__uuidof(ID3D11Device1), (void**)&m_d3d_device_1);
+	if (FAILED(m_d3d_device->QueryInterface(__uuidof(ID3D11Device1), (void**)&m_d3d_device_1)) || !m_d3d_device_1)
+		return false;
 	m_d3d_device_1->GetImmediateContext1(&m_d3d_context);
+	if (!m_d3d_context)
+		return false;
 	m_render_layers.SetD3DResources(m_d3d_device);
 
 	// Pre-cache quad for blitting
 	Rml::Mesh mesh;
 	Rml::MeshUtilities::GenerateQuad(mesh, Rml::Vector2f(-1), Rml::Vector2f(2), {});
 	m_fullscreen_quad_geometry = RenderInterface_DX11::CompileGeometry(mesh.vertices, mesh.indices);
+	if (!m_fullscreen_quad_geometry)
+		return false;
 
 	if (!m_blend_state_enable)
 	{
@@ -847,26 +859,20 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		blend_desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
 		blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		HRESULT result = m_d3d_device->CreateBlendState(&blend_desc, &m_blend_state_enable);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBlendState");
-#ifdef RMLUI_DX_DEBUG
 		if (FAILED(result))
 		{
 			Rml::Log::Message(Rml::Log::LT_ERROR, "ID3D11Device::CreateBlendState (%d)", result);
-			return;
+			return false;
 		}
-#endif
 
 		ZeroMemory(&blend_desc, sizeof(blend_desc));
 		blend_desc.RenderTarget[0].RenderTargetWriteMask = 0;
 		result = m_d3d_device->CreateBlendState(&blend_desc, &m_blend_state_disable_color);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBlendState");
-#ifdef RMLUI_DX_DEBUG
 		if (FAILED(result))
 		{
 			Rml::Log::Message(Rml::Log::LT_ERROR, "ID3D11Device::CreateBlendState (%d)", result);
-			return;
+			return false;
 		}
-#endif
 
 		blend_desc.RenderTarget[0].BlendEnable = true;
 		blend_desc.RenderTarget[0].SrcBlend = D3D11_BLEND_BLEND_FACTOR;
@@ -877,14 +883,11 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		blend_desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
 		blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		result = m_d3d_device->CreateBlendState(&blend_desc, &m_blend_state_color_filter);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBlendState");
-#ifdef RMLUI_DX_DEBUG
 		if (FAILED(result))
 		{
 			Rml::Log::Message(Rml::Log::LT_ERROR, "ID3D11Device::CreateBlendState (%d)", result);
-			return;
+			return false;
 		}
-#endif
 	}
 
 	// Scissor regions require a rasterizer state. Cache one for scissor on and off
@@ -902,34 +905,30 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		rasterizerDesc.AntialiasedLineEnable = NUM_MSAA_SAMPLES > 1;
 
 		HRESULT result = m_d3d_device->CreateRasterizerState(&rasterizerDesc, &m_rasterizer_state_scissor_enabled);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateRasterizerState");
-#ifdef RMLUI_DX_DEBUG
 		if (FAILED(result))
 		{
 			Rml::Log::Message(Rml::Log::LT_ERROR, "ID3D11Device::CreateRasterizerState (scissor: enabled) (%d)", result);
-			return;
+			return false;
 		}
-#endif
 
 		rasterizerDesc.ScissorEnable = false;
 
 		result = m_d3d_device->CreateRasterizerState(&rasterizerDesc, &m_rasterizer_state_scissor_disabled);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateRasterizerState");
-#ifdef RMLUI_DX_DEBUG
 		if (FAILED(result))
 		{
 			Rml::Log::Message(Rml::Log::LT_ERROR, "ID3D11Device::CreateRasterizerState (scissor: disabled) (%d)", result);
-			return;
+			return false;
 		}
-#endif
 	}
 
 	// Compile and load shaders
 	auto mut_program_data = Rml::MakeUnique<Gfx::ProgramData>();
-	if (Gfx::CreateShaders(m_d3d_device, *mut_program_data))
+	if (!Gfx::CreateShaders(m_d3d_device, *mut_program_data))
 	{
-		program_data = std::move(mut_program_data);
+		Gfx::DestroyShaders(*mut_program_data);
+		return false;
 	}
+	program_data = std::move(mut_program_data);
 
 	// Create vertex layout. This will be constant to avoid copying to an intermediate struct.
 	{
@@ -943,10 +942,9 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		HRESULT result =
 			m_d3d_device->CreateInputLayout(polygonLayout, numElements, program_data->vert_shaders[VertShaderId::Main]->GetBufferPointer(),
 				program_data->vert_shaders[VertShaderId::Main]->GetBufferSize(), &m_vertex_layout);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateInputLayout");
 		if (FAILED(result))
 		{
-			return;
+			return false;
 		}
 	}
 
@@ -961,10 +959,9 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		cbufferDesc.StructureByteStride = 0;
 
 		HRESULT result = m_d3d_device->CreateBuffer(&cbufferDesc, nullptr, &m_shader_buffer);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBuffer");
 		if (FAILED(result))
 		{
-			return;
+			return false;
 		}
 
 		cbufferDesc.Usage = D3D11_USAGE_DYNAMIC;
@@ -975,10 +972,9 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		cbufferDesc.StructureByteStride = 0;
 
 		result = m_d3d_device->CreateBuffer(&cbufferDesc, nullptr, &m_color_matrix_cbuffer);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBuffer");
 		if (FAILED(result))
 		{
-			return;
+			return false;
 		}
 
 		cbufferDesc.Usage = D3D11_USAGE_DYNAMIC;
@@ -989,10 +985,9 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		cbufferDesc.StructureByteStride = 0;
 
 		result = m_d3d_device->CreateBuffer(&cbufferDesc, nullptr, &m_blur_cbuffer);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBuffer");
 		if (FAILED(result))
 		{
-			return;
+			return false;
 		}
 
 		cbufferDesc.Usage = D3D11_USAGE_DYNAMIC;
@@ -1003,10 +998,9 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		cbufferDesc.StructureByteStride = 0;
 
 		result = m_d3d_device->CreateBuffer(&cbufferDesc, nullptr, &m_drop_shadow_cbuffer);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBuffer");
 		if (FAILED(result))
 		{
-			return;
+			return false;
 		}
 	}
 
@@ -1028,10 +1022,9 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
 		HRESULT result = m_d3d_device->CreateSamplerState(&samplerDesc, &m_sampler_state);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateSamplerState");
 		if (FAILED(result))
 		{
-			return;
+			return false;
 		}
 	}
 
@@ -1049,7 +1042,8 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		desc.BackFace = desc.FrontFace;
 		desc.StencilEnable = true;
 		// Disabled
-		m_d3d_device->CreateDepthStencilState(&desc, &m_depth_stencil_state_disable);
+		if (FAILED(m_d3d_device->CreateDepthStencilState(&desc, &m_depth_stencil_state_disable)))
+			return false;
 
 		desc.StencilEnable = true;
 		desc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
@@ -1060,7 +1054,8 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		desc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
 		desc.BackFace = desc.FrontFace;
 		// Set and SetInverse
-		m_d3d_device->CreateDepthStencilState(&desc, &m_depth_stencil_state_stencil_set);
+		if (FAILED(m_d3d_device->CreateDepthStencilState(&desc, &m_depth_stencil_state_stencil_set)))
+			return false;
 
 		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 		desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_INCR;
@@ -1068,7 +1063,8 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		desc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
 		desc.BackFace = desc.FrontFace;
 		// Intersect
-		m_d3d_device->CreateDepthStencilState(&desc, &m_depth_stencil_state_stencil_intersect);
+		if (FAILED(m_d3d_device->CreateDepthStencilState(&desc, &m_depth_stencil_state_stencil_intersect)))
+			return false;
 
 		desc.StencilWriteMask = 0;
 		desc.FrontFace.StencilFunc = D3D11_COMPARISON_EQUAL;
@@ -1077,8 +1073,10 @@ RenderInterface_DX11::RenderInterface_DX11(ID3D11Device* p_d3d_device)
 		desc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
 		desc.BackFace = desc.FrontFace;
 		// Stencil test
-		m_d3d_device->CreateDepthStencilState(&desc, &m_depth_stencil_state_stencil_test);
+		if (FAILED(m_d3d_device->CreateDepthStencilState(&desc, &m_depth_stencil_state_stencil_test)))
+			return false;
 	}
+	return true;
 }
 
 RenderInterface_DX11::~RenderInterface_DX11()
@@ -1132,6 +1130,8 @@ void RenderInterface_DX11::BeginFrame()
 		m_d3d_context->OMGetDepthStencilState(&m_previous_d3d_state.depth_stencil_state, &m_previous_d3d_state.stencil_ref);
 		m_d3d_context->PSGetShaderResources(0, 1, &m_previous_d3d_state.pixel_shader_shader_resource);
 		m_d3d_context->PSGetSamplers(0, 1, &m_previous_d3d_state.pixel_shader_sampler);
+		m_d3d_context->PSGetConstantBuffers1(0, 2, m_previous_d3d_state.pixel_shader_constant_buffers,
+			m_previous_d3d_state.pixel_shader_constant_buffer_offsets, m_previous_d3d_state.pixel_shader_constant_buffer_counts);
 		m_previous_d3d_state.pixel_shader_instances_count = m_previous_d3d_state.vertex_shader_instances_count =
 			m_previous_d3d_state.geometry_shader_instances_count = 256;
 		m_d3d_context->PSGetShader(&m_previous_d3d_state.pixel_shader, m_previous_d3d_state.pixel_shader_instances,
@@ -1231,6 +1231,14 @@ void RenderInterface_DX11::EndFrame(ID3D11RenderTargetView* p_render_target_view
 		{
 			m_previous_d3d_state.pixel_shader_sampler->Release();
 		}
+		m_d3d_context->PSSetConstantBuffers1(0, 2, m_previous_d3d_state.pixel_shader_constant_buffers,
+			m_previous_d3d_state.pixel_shader_constant_buffer_offsets, m_previous_d3d_state.pixel_shader_constant_buffer_counts);
+		for (ID3D11Buffer*& buffer : m_previous_d3d_state.pixel_shader_constant_buffers)
+		{
+			if (buffer)
+				buffer->Release();
+			buffer = nullptr;
+		}
 		m_d3d_context->PSSetShader(m_previous_d3d_state.pixel_shader, m_previous_d3d_state.pixel_shader_instances,
 			m_previous_d3d_state.pixel_shader_instances_count);
 		if (m_previous_d3d_state.pixel_shader)
@@ -1310,7 +1318,6 @@ Rml::CompiledGeometryHandle RenderInterface_DX11::CompileGeometry(Rml::Span<cons
 		vertexData.SysMemSlicePitch = 0;
 
 		HRESULT result = m_d3d_device->CreateBuffer(&vertexBufferDesc, &vertexData, &vertex_buffer);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBuffer");
 		if (FAILED(result))
 		{
 			return Rml::CompiledGeometryHandle(0);
@@ -1333,7 +1340,6 @@ Rml::CompiledGeometryHandle RenderInterface_DX11::CompileGeometry(Rml::Span<cons
 		indexData.SysMemSlicePitch = 0;
 
 		HRESULT result = m_d3d_device->CreateBuffer(&indexBufferDesc, &indexData, &index_buffer);
-		RMLUI_DX_ASSERTMSG(result, "failed to CreateBuffer");
 		if (FAILED(result))
 		{
 			Dx11CleanupResourceIfCreated(vertex_buffer);
@@ -1341,7 +1347,13 @@ Rml::CompiledGeometryHandle RenderInterface_DX11::CompileGeometry(Rml::Span<cons
 		}
 	}
 
-	DX11_GeometryData* geometryData = new DX11_GeometryData;
+	DX11_GeometryData* geometryData = new (std::nothrow) DX11_GeometryData;
+	if (!geometryData)
+	{
+		Dx11CleanupResourceIfCreated(vertex_buffer);
+		Dx11CleanupResourceIfCreated(index_buffer);
+		return Rml::CompiledGeometryHandle(0);
+	}
 
 	geometryData->vertex_buffer = vertex_buffer;
 	geometryData->index_buffer = index_buffer;
@@ -1454,37 +1466,38 @@ Rml::TextureHandle RenderInterface_DX11::LoadTexture(Rml::Vector2i& texture_dime
 
 	using Rml::byte;
 	Rml::UniquePtr<byte[]> buffer(new byte[buffer_size]);
-	file_interface->Read(buffer.get(), buffer_size, file_handle);
+	const size_t bytes_read = file_interface->Read(buffer.get(), buffer_size, file_handle);
 	file_interface->Close(file_handle);
+	if (bytes_read != buffer_size)
+		return false;
 
 	TGAHeader header;
 	memcpy(&header, buffer.get(), sizeof(TGAHeader));
 
-	int color_mode = header.bitsPerPixel / 8;
-	const size_t image_size = header.width * header.height * 4; // We always make 32bit textures
-
-	if (header.dataType != 2)
+	const int color_mode = header.bitsPerPixel / 8;
+	if (header.dataType != 2 || header.colourMapType != 0 || header.width <= 0 || header.height <= 0 ||
+		(header.bitsPerPixel != 24 && header.bitsPerPixel != 32))
 	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24/32bit uncompressed TGAs are supported.");
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Only valid 24/32bit uncompressed TGAs are supported.");
 		return false;
 	}
-
-	// Ensure we have at least 3 colors
-	if (color_mode < 3)
+	const size_t pixel_count = size_t(header.width) * size_t(header.height);
+	const size_t image_size = pixel_count * 4;
+	const size_t image_offset = sizeof(TGAHeader) + static_cast<unsigned char>(header.idLength);
+	if (image_offset > buffer_size || pixel_count > (buffer_size - image_offset) / size_t(color_mode))
 	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24 and 32bit textures are supported.");
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Truncated TGA image.");
 		return false;
 	}
-
-	const byte* image_src = buffer.get() + sizeof(TGAHeader);
+	const byte* image_src = buffer.get() + image_offset;
 	Rml::UniquePtr<byte[]> image_dest_buffer(new byte[image_size]);
 	byte* image_dest = image_dest_buffer.get();
 
 	// Targa is BGR, swap to RGB, flip Y axis, and convert to premultiplied alpha.
 	for (long y = 0; y < header.height; y++)
 	{
-		long read_index = y * header.width * color_mode;
-		long write_index = ((header.imageDescriptor & 32) != 0) ? read_index : (header.height - y - 1) * header.width * 4;
+		size_t read_index = size_t(y) * size_t(header.width) * size_t(color_mode);
+		size_t write_index = size_t(((header.imageDescriptor & 32) != 0) ? y : (header.height - y - 1)) * size_t(header.width) * 4;
 		for (long x = 0; x < header.width; x++)
 		{
 			image_dest[write_index] = image_src[read_index + 2];
@@ -1746,8 +1759,13 @@ void RenderInterface_DX11::BlitRenderTarget(const Gfx::RenderTargetData& source,
 		// Disable blending
 		DisableBlend();
 
-		// Resolve from source to the temporary first
-		m_d3d_context->ResolveSubresource(temporary_rt.render_target_texture, 0, source.render_target_texture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+		// Resolve multisampled sources; single-sampled sources need a copy instead.
+		D3D11_TEXTURE2D_DESC source_desc{};
+		source.render_target_texture->GetDesc(&source_desc);
+		if (source_desc.SampleDesc.Count > 1)
+			m_d3d_context->ResolveSubresource(temporary_rt.render_target_texture, 0, source.render_target_texture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+		else
+			m_d3d_context->CopyResource(temporary_rt.render_target_texture, source.render_target_texture);
 
 		// Bind destination as our final render texture
 		Gfx::BindRenderTarget(m_d3d_context, dest);
@@ -1834,8 +1852,12 @@ void RenderInterface_DX11::BlitRenderTarget(const Gfx::RenderTargetData& source,
 	}
 	else
 	{
-		// Resolve and move on
-		m_d3d_context->ResolveSubresource(dest.render_target_texture, 0, source.render_target_texture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+		D3D11_TEXTURE2D_DESC source_desc{};
+		source.render_target_texture->GetDesc(&source_desc);
+		if (source_desc.SampleDesc.Count > 1)
+			m_d3d_context->ResolveSubresource(dest.render_target_texture, 0, source.render_target_texture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+		else
+			m_d3d_context->CopyResource(dest.render_target_texture, source.render_target_texture);
 	}
 }
 
@@ -1930,10 +1952,10 @@ Rml::TextureHandle RenderInterface_DX11::SaveLayerAsTexture()
 
 	// Copy the destination texture to the final texture resource
 	D3D11_BOX copy_box{};
-	copy_box.left = bounds.Left();
-	copy_box.right = bounds.Right();
-	copy_box.top = bounds.Top();
-	copy_box.bottom = bounds.Bottom();
+	copy_box.left = 0;
+	copy_box.right = bounds.Width();
+	copy_box.top = 0;
+	copy_box.bottom = bounds.Height();
 	copy_box.front = 0;
 	copy_box.back = 1;
 
@@ -2198,6 +2220,8 @@ void RenderInterface_DX11::RenderShader(Rml::CompiledShaderHandle shader_handle,
 	Rml::Vector2f translation, Rml::TextureHandle /*texture*/)
 {
 	RMLUI_ASSERT(shader_handle && geometry_handle);
+	// Shader draws overwrite the shared buffer independently of the cached translation.
+	m_cbuffer_dirty = true;
 	const CompiledShader& shader = *reinterpret_cast<CompiledShader*>(shader_handle);
 	const CompiledShaderType type = shader.type;
 

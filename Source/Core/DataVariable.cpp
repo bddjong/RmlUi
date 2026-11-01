@@ -139,28 +139,40 @@ bool BasePointerDefinition::Get(void* ptr, Variant& variant)
 {
 	if (!ptr)
 		return false;
-	return underlying_definition->Get(DereferencePointer(ptr), variant);
+	void* pointee = DereferencePointer(ptr);
+	if (!pointee)
+		return false;
+	return underlying_definition->Get(pointee, variant);
 }
 
 bool BasePointerDefinition::Set(void* ptr, const Variant& variant)
 {
 	if (!ptr)
 		return false;
-	return underlying_definition->Set(DereferencePointer(ptr), variant);
+	void* pointee = DereferencePointer(ptr);
+	if (!pointee)
+		return false;
+	return underlying_definition->Set(pointee, variant);
 }
 
 int BasePointerDefinition::Size(void* ptr)
 {
 	if (!ptr)
 		return 0;
-	return underlying_definition->Size(DereferencePointer(ptr));
+	void* pointee = DereferencePointer(ptr);
+	if (!pointee)
+		return 0;
+	return underlying_definition->Size(pointee);
 }
 
 DataVariable BasePointerDefinition::Child(void* ptr, const DataAddressEntry& address)
 {
 	if (!ptr)
 		return DataVariable();
-	return underlying_definition->Child(DereferencePointer(ptr), address);
+	void* pointee = DereferencePointer(ptr);
+	if (!pointee)
+		return DataVariable();
+	return underlying_definition->Child(pointee, address);
 }
 
 StringList BasePointerDefinition::ReflectMemberNames()

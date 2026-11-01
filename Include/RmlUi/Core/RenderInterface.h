@@ -51,6 +51,10 @@ public:
 	/// @param[out] texture_dimensions The dimensions of the loaded texture, which must be set by the application.
 	/// @param[in] source The application-defined image source, joined with the path of the referencing document.
 	/// @return An application-specified handle identifying the texture, or zero if it could not be loaded.
+	/// Texture operations may reenter texture loading or invalidation. The interface and
+	/// associated RenderManager must remain alive until all nested calls return. Recursive
+	/// loading of the same texture returns an empty result; invalidation discards and
+	/// releases any handle returned by the invalidated load.
 	virtual TextureHandle LoadTexture(Vector2i& texture_dimensions, const String& source) = 0;
 	/// Called by RmlUi when a texture is required to be generated from a sequence of pixels in memory.
 	/// @param[in] source The raw texture data. Each pixel is made up of four 8-bit values, red, green, blue, and premultiplied alpha, in that order.

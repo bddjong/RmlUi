@@ -7,6 +7,7 @@
 #include "../../Include/RmlUi/Core/Utilities.h"
 #include "ComputeProperty.h"
 #include "StyleSheetParser.h"
+#include <cmath>
 
 namespace Rml {
 
@@ -42,7 +43,7 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
 		for (const auto& property : media_block.properties.GetProperties())
 		{
 			const MediaQueryId id = static_cast<MediaQueryId>(property.first);
-			Vector2i ratio;
+			Vector2f ratio;
 
 			switch (id)
 			{
@@ -71,20 +72,22 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
 					all_match = false;
 				break;
 			case MediaQueryId::AspectRatio:
-				ratio = Vector2i(property.second.Get<Vector2f>());
-				if (vp_dimensions_i.x * ratio.y != vp_dimensions_i.y * ratio.x)
-					all_match = false;
-				break;
 			case MediaQueryId::MinAspectRatio:
-				ratio = Vector2i(property.second.Get<Vector2f>());
-				if (vp_dimensions_i.x * ratio.y < vp_dimensions_i.y * ratio.x)
-					all_match = false;
-				break;
 			case MediaQueryId::MaxAspectRatio:
-				ratio = Vector2i(property.second.Get<Vector2f>());
-				if (vp_dimensions_i.x * ratio.y > vp_dimensions_i.y * ratio.x)
+			{
+				ratio = property.second.Get<Vector2f>();
+				if (!std::isfinite(ratio.x) || !std::isfinite(ratio.y) || ratio.x <= 0 || ratio.y <= 0)
 					all_match = false;
+				else
+				{
+					const double lhs = double(vp_dimensions_i.x) * double(ratio.y);
+					const double rhs = double(vp_dimensions_i.y) * double(ratio.x);
+					if ((id == MediaQueryId::AspectRatio && lhs != rhs) || (id == MediaQueryId::MinAspectRatio && lhs < rhs) ||
+						(id == MediaQueryId::MaxAspectRatio && lhs > rhs))
+						all_match = false;
+				}
 				break;
+			}
 			case MediaQueryId::Resolution:
 				if (dp_ratio != property.second.Get<float>())
 					all_match = false;
@@ -112,7 +115,7 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
 			case MediaQueryId::NumDefinedIds: break;
 			}
 
-			if (all_match != expected_match_value)
+			if (!all_match)
 				break;
 		}
 

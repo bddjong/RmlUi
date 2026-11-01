@@ -3,6 +3,7 @@
 #include "../../../Include/RmlUi/Core/ElementUtilities.h"
 #include "../../../Include/RmlUi/Core/Event.h"
 #include "WidgetDropDown.h"
+#include "../../../Include/RmlUi/Core/Math.h"
 
 namespace Rml {
 
@@ -34,7 +35,8 @@ void ElementFormControlSelect::SetSelection(int selection)
 {
 	MoveChildren();
 
-	widget->SetSelection(widget->GetOption(selection));
+	const int count = widget->GetNumOptions();
+	widget->SetSelection(count > 0 ? widget->GetOption(Math::Clamp(selection, 0, count - 1)) : nullptr);
 }
 
 int ElementFormControlSelect::GetSelection() const

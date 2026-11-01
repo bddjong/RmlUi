@@ -164,60 +164,86 @@ BASIC_CONVERTER(char, Character);
 // From string converters
 /////////////////////////////////////////////////
 
-#define STRING_FLOAT_CONVERTER(type)                       \
-	template <>                                            \
-	class TypeConverter<String, type> {                    \
-	public:                                                \
-		static bool Convert(const String& src, type& dest) \
-		{                                                  \
-			dest = (type)atof(src.c_str());                \
-			return true;                                   \
-		}                                                  \
+namespace TypeConverterDetail {
+
+inline const char* SkipNumericSpace(const char* p, const char* end)
+{
+	while (p != end && std::isspace(static_cast<unsigned char>(*p)))
+		++p;
+	return p;
+}
+
+inline bool NumericTokenComplete(const String& src, const char* start, const char* parsed_end)
+{
+	const char* end = src.c_str() + src.size();
+	return parsed_end != start && SkipNumericSpace(parsed_end, end) == end;
+}
+
+template <typename T>
+bool ParseInteger(const String& src, T& dest)
+{
+	const char* start = SkipNumericSpace(src.c_str(), src.c_str() + src.size());
+	if (start == src.c_str() + src.size() || (!std::numeric_limits<T>::is_signed && *start == '-'))
+		return false;
+	char* end = nullptr;
+	const int saved_errno = errno;
+	errno = 0;
+	if (std::numeric_limits<T>::is_signed)
+	{
+		const long long value = strtoll(start, &end, 10);
+		const bool valid = errno != ERANGE && NumericTokenComplete(src, start, end) &&
+			value >= static_cast<long long>(std::numeric_limits<T>::min()) && value <= static_cast<long long>(std::numeric_limits<T>::max());
+		errno = saved_errno;
+		if (valid)
+			dest = static_cast<T>(value);
+		return valid;
 	}
-STRING_FLOAT_CONVERTER(float);
-STRING_FLOAT_CONVERTER(double);
+	const unsigned long long value = strtoull(start, &end, 10);
+	const bool valid = errno != ERANGE && NumericTokenComplete(src, start, end) && value <= static_cast<unsigned long long>(std::numeric_limits<T>::max());
+	errno = saved_errno;
+	if (valid)
+		dest = static_cast<T>(value);
+	return valid;
+}
 
-template <>
-class TypeConverter<String, int> {
-public:
-	static bool Convert(const String& src, int& dest) { return sscanf(src.c_str(), "%d", &dest) == 1; }
-};
+inline float ParseFloat(const char* start, char** end, float*) { return strtof(start, end); }
+inline double ParseFloat(const char* start, char** end, double*) { return strtod(start, end); }
 
-template <>
-class TypeConverter<String, unsigned int> {
-public:
-	static bool Convert(const String& src, unsigned int& dest) { return sscanf(src.c_str(), "%u", &dest) == 1; }
-};
+template <typename T>
+bool ParseFloating(const String& src, T& dest)
+{
+	const char* start = SkipNumericSpace(src.c_str(), src.c_str() + src.size());
+	char* end = nullptr;
+	const int saved_errno = errno;
+	errno = 0;
+	const T value = ParseFloat(start, &end, static_cast<T*>(nullptr));
+	const bool valid = errno != ERANGE && NumericTokenComplete(src, start, end) && std::isfinite(value);
+	errno = saved_errno;
+	if (valid)
+		dest = value;
+	return valid;
+}
 
-template <>
-class TypeConverter<String, long> {
-public:
-	static bool Convert(const String& src, long& dest) { return sscanf(src.c_str(), "%ld", &dest) == 1; }
-};
+} // namespace TypeConverterDetail
 
-template <>
-class TypeConverter<String, unsigned long> {
-public:
-	static bool Convert(const String& src, unsigned long& dest) { return sscanf(src.c_str(), "%lu", &dest) == 1; }
-};
+#define STRING_NUMBER_CONVERTER(type, parser)                  \
+	template <>                                                \
+	class TypeConverter<String, type> {                        \
+	public:                                                    \
+		static bool Convert(const String& src, type& dest)     \
+		{ return TypeConverterDetail::parser(src, dest); }      \
+	}
 
-template <>
-class TypeConverter<String, long long> {
-public:
-	static bool Convert(const String& src, long long& dest) { return sscanf(src.c_str(), "%lld", &dest) == 1; }
-};
-
-template <>
-class TypeConverter<String, unsigned long long> {
-public:
-	static bool Convert(const String& src, unsigned long long& dest) { return sscanf(src.c_str(), "%llu", &dest) == 1; }
-};
-
-template <>
-class TypeConverter<String, byte> {
-public:
-	static bool Convert(const String& src, byte& dest) { return sscanf(src.c_str(), "%hhu", &dest) == 1; }
-};
+STRING_NUMBER_CONVERTER(float, ParseFloating);
+STRING_NUMBER_CONVERTER(double, ParseFloating);
+STRING_NUMBER_CONVERTER(int, ParseInteger);
+STRING_NUMBER_CONVERTER(unsigned int, ParseInteger);
+STRING_NUMBER_CONVERTER(long, ParseInteger);
+STRING_NUMBER_CONVERTER(unsigned long, ParseInteger);
+STRING_NUMBER_CONVERTER(long long, ParseInteger);
+STRING_NUMBER_CONVERTER(unsigned long long, ParseInteger);
+STRING_NUMBER_CONVERTER(byte, ParseInteger);
+#undef STRING_NUMBER_CONVERTER
 
 template <>
 class TypeConverter<String, bool> {
@@ -248,11 +274,13 @@ public:
 		StringUtilities::ExpandString(string_list, src);
 		if (string_list.size() < count)
 			return false;
+		DestType converted = dest;
 		for (int i = 0; i < count; i++)
 		{
-			if (!TypeConverter<String, InternalType>::Convert(string_list[i], dest[i]))
+			if (!TypeConverter<String, InternalType>::Convert(string_list[i], converted[i]))
 				return false;
 		}
+		dest = converted;
 		return true;
 	}
 };

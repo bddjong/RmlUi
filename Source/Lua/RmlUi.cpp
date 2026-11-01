@@ -39,8 +39,8 @@ int LuaRmlUiCreateContext(lua_State* L, LuaRmlUi* /*obj*/)
 {
 	const char* name = luaL_checkstring(L, 1);
 	Vector2i* dimensions = LuaType<Vector2i>::check(L, 2);
-	Context* new_context = CreateContext(name, *dimensions);
-	if (new_context == nullptr || dimensions == nullptr)
+	Context* new_context = dimensions ? CreateContext(name, *dimensions) : nullptr;
+	if (new_context == nullptr)
 	{
 		lua_pushnil(L);
 	}

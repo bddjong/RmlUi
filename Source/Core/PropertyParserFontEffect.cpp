@@ -43,7 +43,8 @@ bool PropertyParserFontEffect::ParseValue(Property& property, const String& font
 	{
 		const size_t shorthand_open = font_effect_string.find('(');
 		const size_t shorthand_close = font_effect_string.rfind(')');
-		const bool invalid_parenthesis = (shorthand_open == String::npos || shorthand_close == String::npos || shorthand_open >= shorthand_close);
+		const bool invalid_parenthesis = (shorthand_open == String::npos || shorthand_close == String::npos || shorthand_open >= shorthand_close ||
+			!StringUtilities::StripWhitespace(font_effect_string.substr(shorthand_close + 1)).empty());
 
 		if (invalid_parenthesis)
 		{
@@ -89,7 +90,11 @@ bool PropertyParserFontEffect::ParseValue(Property& property, const String& font
 				// Create a unique hash value for the given type and values
 				size_t fingerprint = Hash<String>{}(type);
 				for (const auto& id_value : properties.GetProperties())
+				{
 					Utilities::HashCombine(fingerprint, id_value.second.ToString());
+					if (id_value.second.value.GetType() == Variant::FLOAT)
+						Utilities::HashCombine(fingerprint, id_value.second.Get<float>());
+				}
 
 				font_effect->SetFingerprint(fingerprint);
 

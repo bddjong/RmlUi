@@ -7,6 +7,19 @@ using namespace Rml;
 
 TEST_CASE("Data variables")
 {
+	{
+		const DataAddress address = ParseAddress("data.items[12][0].value");
+		REQUIRE(address.size() == 5);
+		CHECK(address[0].name == "data");
+		CHECK(address[1].name == "items");
+		CHECK(address[2].index == 12);
+		CHECK(address[3].index == 0);
+		CHECK(address[4].name == "value");
+		CHECK(ParseAddress("data.items[]").empty());
+		CHECK(ParseAddress("data.items[12x]").empty());
+		CHECK(ParseAddress("data.items[-1]").empty());
+	}
+
 	using IntVector = Vector<int>;
 
 	struct FunData {
@@ -73,7 +86,9 @@ TEST_CASE("Data variables")
 
 		CHECK(results == expected_results);
 
-		REQUIRE(model.GetVariable(ParseAddress("data.more_fun[1].magic[1]")).Set(Variant(String("199"))));
+		auto magic_entry = model.GetVariable(ParseAddress("data.more_fun[1].magic[1]"));
+		REQUIRE(magic_entry);
+		REQUIRE(magic_entry.Set(Variant(String("199"))));
 		CHECK(data.more_fun[1].magic[1] == 199);
 
 		data.fun.magic = {99, 190, 55, 2000, 50, 60, 70, 80, 90};
@@ -121,8 +136,34 @@ TEST_CASE("Data variables.non_standard_array_interface")
 		model.GetVariableInto(ParseAddress("custom_array.size"), result);
 		CHECK(result.Get<int>() == int(custom_array.GetNum()));
 
-		REQUIRE(model.GetVariable(ParseAddress("custom_array[1]")).Set(Variant(String("199"))));
+		auto entry = model.GetVariable(ParseAddress("custom_array[1]"));
+		REQUIRE(entry);
+		REQUIRE(entry.Set(Variant(String("199"))));
 		CHECK(custom_array[1] == 199);
 	}
 }
 
+
+TEST_CASE("Data variables.null_pointer")
+{
+	struct CountingDefinition : VariableDefinition {
+		int calls = 0;
+		CountingDefinition() : VariableDefinition(DataVariableType::Scalar) {}
+		bool Get(void*, Variant&) override { ++calls; return true; }
+		bool Set(void*, const Variant&) override { ++calls; return true; }
+		int Size(void*) override { ++calls; return 1; }
+		DataVariable Child(void*, const DataAddressEntry&) override { ++calls; return {}; }
+	} underlying;
+	PointerDefinition<int*> pointer(&underlying);
+	int* value = nullptr;
+	Variant result;
+	CHECK_FALSE(pointer.Get(&value, result));
+	CHECK_FALSE(pointer.Set(&value, result));
+	CHECK(pointer.Size(&value) == 0);
+	pointer.Child(&value, DataAddressEntry(0));
+	CHECK(underlying.calls == 0);
+	int target = 1;
+	value = &target;
+	CHECK(pointer.Get(&value, result));
+	CHECK(underlying.calls == 1);
+}

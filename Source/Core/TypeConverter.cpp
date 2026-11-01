@@ -85,6 +85,7 @@ bool TypeConverter<TransitionList, String>::Convert(const TransitionList& src, S
 		dest = "none";
 		return true;
 	}
+	dest.clear();
 	String tmp;
 	for (size_t i = 0; i < src.transitions.size(); i++)
 	{
@@ -113,6 +114,7 @@ bool TypeConverter<AnimationList, AnimationList>::Convert(const AnimationList& s
 
 bool TypeConverter<AnimationList, String>::Convert(const AnimationList& src, String& dest)
 {
+	dest.clear();
 	String tmp;
 	for (size_t i = 0; i < src.size(); i++)
 	{
@@ -153,7 +155,7 @@ static bool ConvertEffectToString(const EffectsPtr& src, String& dest, const Str
 	if (!src || src->list.empty())
 		dest = "none";
 	else if (!src->value.empty())
-		dest += src->value;
+		dest = src->value;
 	else
 	{
 		dest.clear();
@@ -204,7 +206,7 @@ bool TypeConverter<FontEffectsPtr, String>::Convert(const FontEffectsPtr& src, S
 	if (!src || src->list.empty())
 		dest = "none";
 	else
-		dest += src->value;
+		dest = src->value;
 	return true;
 }
 
@@ -222,7 +224,7 @@ bool TypeConverter<ColorStopList, String>::Convert(const ColorStopList& src, Str
 		const ColorStop& stop = src[i];
 		dest += ToString(stop.color.ToNonPremultiplied());
 
-		if (Any(stop.position.unit & Unit::NUMBER_LENGTH_PERCENT))
+		if (Any(stop.position.unit & (Unit::NUMBER_LENGTH_PERCENT | Unit::DEG | Unit::RAD)))
 			dest += " " + ToString(stop.position.number) + ToString(stop.position.unit);
 
 		if (i < src.size() - 1)

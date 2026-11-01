@@ -87,9 +87,10 @@ DecoratorDataHandle DecoratorNinePatch::GenerateElementData(Element* element, Bo
 	{
 		if (surface_center_size[i] < 0.0f)
 		{
-			float top_left_size = tex_pos[1][i] - tex_pos[0][i];
-			float bottom_right_size = tex_pos[3][i] - tex_pos[2][i];
-			surface_pos[1][i] = top_left_size / (top_left_size + bottom_right_size) * surface_dimensions[i];
+			const float top_left_size = surface_pos[1][i] - surface_pos[0][i];
+			const float bottom_right_size = surface_pos[3][i] - surface_pos[2][i];
+			const float total_size = top_left_size + bottom_right_size;
+			surface_pos[1][i] = total_size != 0.f ? top_left_size / total_size * surface_dimensions[i] : 0.f;
 			surface_pos[2][i] = surface_pos[1][i];
 		}
 	}

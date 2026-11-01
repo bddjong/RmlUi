@@ -109,7 +109,7 @@ static void RegisterTypes()
 	LuaType<Document>::Register(L);
 	LuaType<ElementText>::Register(L);
 	LuaType<ElementPtr>::Register(L);
-	LuaType<Event>::Register(L);
+	LuaType<LuaEvent>::Register(L);
 	LuaType<Context>::Register(L);
 	LuaType<LuaRmlUi>::Register(L);
 	LuaType<ElementInstancer>::Register(L);

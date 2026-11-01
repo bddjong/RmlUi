@@ -1,4 +1,5 @@
 #include "EventParametersProxy.h"
+#include "Event.h"
 #include <RmlUi/Core/Dictionary.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/Event.h>
@@ -8,28 +9,34 @@
 namespace Rml {
 namespace Lua {
 template <>
-void ExtraInit<Event>(lua_State* /*L*/, int /*metatable_index*/)
+void ExtraInit<LuaEvent>(lua_State* /*L*/, int /*metatable_index*/)
 {
 	return;
 }
 
 // methods
-int EventStopPropagation(lua_State* /*L*/, Event* obj)
+int EventStopPropagation(lua_State* L, LuaEvent* obj)
 {
-	obj->StopPropagation();
+	RMLUI_CHECK_OBJ(obj);
+	RMLUI_CHECK_OBJ(obj->state->event);
+	obj->state->event->StopPropagation();
 	return 0;
 }
 
-int EventStopImmediatePropagation(lua_State* /*L*/, Event* obj)
+int EventStopImmediatePropagation(lua_State* L, LuaEvent* obj)
 {
-	obj->StopImmediatePropagation();
+	RMLUI_CHECK_OBJ(obj);
+	RMLUI_CHECK_OBJ(obj->state->event);
+	obj->state->event->StopImmediatePropagation();
 	return 0;
 }
 
 // getters
 int EventGetAttrcurrent_element(lua_State* L)
 {
-	Event* evt = LuaType<Event>::check(L, 1);
+	LuaEvent* handle = LuaType<LuaEvent>::check(L, 1);
+	RMLUI_CHECK_OBJ(handle);
+	Event* evt = handle->state->event;
 	RMLUI_CHECK_OBJ(evt);
 	Element* ele = evt->GetCurrentElement();
 	LuaType<Element>::push(L, ele, false);
@@ -38,7 +45,9 @@ int EventGetAttrcurrent_element(lua_State* L)
 
 int EventGetAttrtype(lua_State* L)
 {
-	Event* evt = LuaType<Event>::check(L, 1);
+	LuaEvent* handle = LuaType<LuaEvent>::check(L, 1);
+	RMLUI_CHECK_OBJ(handle);
+	Event* evt = handle->state->event;
 	RMLUI_CHECK_OBJ(evt);
 	String type = evt->GetType();
 	lua_pushstring(L, type.c_str());
@@ -47,7 +56,9 @@ int EventGetAttrtype(lua_State* L)
 
 int EventGetAttrtarget_element(lua_State* L)
 {
-	Event* evt = LuaType<Event>::check(L, 1);
+	LuaEvent* handle = LuaType<LuaEvent>::check(L, 1);
+	RMLUI_CHECK_OBJ(handle);
+	Event* evt = handle->state->event;
 	RMLUI_CHECK_OBJ(evt);
 	Element* target = evt->GetTargetElement();
 	LuaType<Element>::push(L, target, false);
@@ -56,15 +67,17 @@ int EventGetAttrtarget_element(lua_State* L)
 
 int EventGetAttrparameters(lua_State* L)
 {
-	Event* evt = LuaType<Event>::check(L, 1);
+	LuaEvent* handle = LuaType<LuaEvent>::check(L, 1);
+	RMLUI_CHECK_OBJ(handle);
+	Event* evt = handle->state->event;
 	RMLUI_CHECK_OBJ(evt);
 	EventParametersProxy* proxy = new EventParametersProxy();
-	proxy->owner = evt;
+	proxy->state = handle->state;
 	LuaType<EventParametersProxy>::push(L, proxy, true);
 	return 1;
 }
 
-RegType<Event> EventMethods[] = {
+RegType<LuaEvent> EventMethods[] = {
 	RMLUI_LUAMETHOD(Event, StopPropagation),
 	RMLUI_LUAMETHOD(Event, StopImmediatePropagation),
 	{nullptr, nullptr},
@@ -82,6 +95,9 @@ luaL_Reg EventSetters[] = {
 	{nullptr, nullptr},
 };
 
-RMLUI_LUATYPE_DEFINE(Event)
+template <> const char* GetTClassName<LuaEvent>() { return "Event"; }
+template <> RegType<LuaEvent>* GetMethodTable<LuaEvent>() { return EventMethods; }
+template <> luaL_Reg* GetAttrTable<LuaEvent>() { return EventGetters; }
+template <> luaL_Reg* SetAttrTable<LuaEvent>() { return EventSetters; }
 } // namespace Lua
 } // namespace Rml

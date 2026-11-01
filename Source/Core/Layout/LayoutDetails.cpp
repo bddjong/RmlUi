@@ -210,7 +210,7 @@ void LayoutDetails::BuildBoxSizeAndMargins(Box& box, Vector2f min_size, Vector2f
 	{
 		// The element is block, so we need to run the box through the ringer to potentially evaluate auto margins and dimensions.
 		BuildBoxWidth(box, computed, min_size.x, max_size.x, containing_block, element, replaced_element);
-		BuildBoxHeight(box, computed, min_size.y, max_size.y, containing_block.y);
+		BuildBoxHeight(box, computed, min_size.y, max_size.y, containing_block);
 	}
 }
 
@@ -471,8 +471,9 @@ void LayoutDetails::BuildBoxWidth(Box& box, const ComputedValues& computed, floa
 		box.SetContent(content_area);
 }
 
-void LayoutDetails::BuildBoxHeight(Box& box, const ComputedValues& computed, float min_height, float max_height, float containing_block_height)
+void LayoutDetails::BuildBoxHeight(Box& box, const ComputedValues& computed, float min_height, float max_height, Vector2f containing_block)
 {
+	const float containing_block_height = containing_block.y;
 	RMLUI_ZoneScoped;
 
 	Vector2f content_area = box.GetSize();
@@ -493,7 +494,7 @@ void LayoutDetails::BuildBoxHeight(Box& box, const ComputedValues& computed, flo
 		else
 		{
 			margins_auto[i] = false;
-			box.SetEdge(BoxArea::Margin, i == 0 ? BoxEdge::Top : BoxEdge::Bottom, ResolveValue(margin_value, containing_block_height));
+			box.SetEdge(BoxArea::Margin, i == 0 ? BoxEdge::Top : BoxEdge::Bottom, ResolveValue(margin_value, containing_block.x));
 		}
 	}
 
@@ -547,7 +548,7 @@ void LayoutDetails::BuildBoxHeight(Box& box, const ComputedValues& computed, flo
 			box.SetContent(content_area);
 
 			if (num_auto_margins > 0)
-				BuildBoxHeight(box, computed, min_height, max_height, containing_block_height);
+				BuildBoxHeight(box, computed, min_height, max_height, containing_block);
 
 			return;
 		}

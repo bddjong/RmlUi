@@ -73,9 +73,11 @@ int main(int /*argc*/, char** /*argv*/)
 		running = Backend::ProcessEvents(context, &Shell::ProcessKeyDownShortcuts, true);
 		context->Update();
 
-		Backend::BeginFrame();
-		context->Render();
-		Backend::PresentFrame();
+		if (Backend::BeginFrame())
+		{
+			context->Render();
+			Backend::PresentFrame();
+		}
 	}
 
 	demo_window.Shutdown();

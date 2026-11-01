@@ -27,12 +27,9 @@ Matrix4<Component, Storage>::Matrix4(const typename Matrix4<Component, Storage>:
 template <typename Component, class Storage>
 Matrix4<Component, Storage>::Matrix4(const typename Matrix4<Component, Storage>::TransposeType& other) noexcept
 {
-	Rows rows(vectors);
-	typename Matrix4<Component, Storage>::TransposeType::ConstRows other_rows(other.vectors);
 	for (int i = 0; i < 4; ++i)
-	{
-		rows[i] = other_rows[i];
-	}
+		for (int j = 0; j < 4; ++j)
+			vectors[i][j] = other.vectors[j][i];
 }
 
 template <typename Component, class Storage>
@@ -50,12 +47,9 @@ template <typename Component, class Storage>
 const typename Matrix4<Component, Storage>::ThisType& Matrix4<Component, Storage>::operator=(
 	const typename Matrix4<Component, Storage>::TransposeType& other) noexcept
 {
-	Rows rows(vectors);
-	typename Matrix4<Component, Storage>::TransposeType::Rows other_rows(other.vectors);
 	for (int i = 0; i < 4; ++i)
-	{
-		rows[i] = other_rows[i];
-	}
+		for (int j = 0; j < 4; ++j)
+			vectors[i][j] = other.vectors[j][i];
 	return *this;
 }
 
@@ -238,12 +232,9 @@ template <typename Component, class Storage>
 const typename Matrix4<Component, Storage>::ThisType& Matrix4<Component, Storage>::operator+=(
 	const typename Matrix4<Component, Storage>::TransposeType& other) noexcept
 {
-	Rows rows(vectors);
-	typename Matrix4<Component, Storage>::TransposeType::ConstRows other_rows(other);
 	for (int i = 0; i < 4; ++i)
-	{
-		rows[i] += other_rows[i];
-	}
+		for (int j = 0; j < 4; ++j)
+			vectors[i][j] += other.vectors[j][i];
 	return *this;
 }
 
@@ -261,12 +252,9 @@ template <typename Component, class Storage>
 const typename Matrix4<Component, Storage>::ThisType& Matrix4<Component, Storage>::operator-=(
 	const typename Matrix4<Component, Storage>::TransposeType& other) noexcept
 {
-	Rows rows(vectors);
-	typename Matrix4<Component, Storage>::TransposeType::ConstRows other_rows(other);
 	for (int i = 0; i < 4; ++i)
-	{
-		rows[i] -= other_rows[i];
-	}
+		for (int j = 0; j < 4; ++j)
+			vectors[i][j] -= other.vectors[j][i];
 	return *this;
 }
 
@@ -300,9 +288,11 @@ bool Matrix4<Component, Storage>::operator==(const typename Matrix4<Component, S
 template <typename Component, class Storage>
 bool Matrix4<Component, Storage>::operator==(const typename Matrix4<Component, Storage>::TransposeType& other) const noexcept
 {
-	typename Matrix4<Component, Storage>::ConstRows rows(vectors);
-	typename Matrix4<Component, Storage>::ConstRows other_rows(other.vectors);
-	return rows[0] == other_rows[0] && rows[1] == other_rows[1] && rows[2] == other_rows[2] && rows[3] == other_rows[3];
+	for (int i = 0; i < 4; ++i)
+		for (int j = 0; j < 4; ++j)
+			if (vectors[i][j] != other.vectors[j][i])
+				return false;
+	return true;
 }
 
 template <typename Component, class Storage>
@@ -313,9 +303,11 @@ bool Matrix4<Component, Storage>::operator!=(const typename Matrix4<Component, S
 template <typename Component, class Storage>
 bool Matrix4<Component, Storage>::operator!=(const typename Matrix4<Component, Storage>::TransposeType& other) const noexcept
 {
-	typename Matrix4<Component, Storage>::ConstRows rows(vectors);
-	typename Matrix4<Component, Storage>::ConstRows other_rows(other.vectors);
-	return rows[0] != other_rows[0] || rows[1] != other_rows[1] || rows[2] != other_rows[2] || rows[3] != other_rows[3];
+	for (int i = 0; i < 4; ++i)
+		for (int j = 0; j < 4; ++j)
+			if (vectors[i][j] != other.vectors[j][i])
+				return true;
+	return false;
 }
 
 template <typename Component, class Storage>
@@ -487,12 +479,13 @@ Matrix4<Component, Storage> Matrix4<Component, Storage>::Compose(const Vector3<C
 {
 	ThisType matrix = ThisType::Identity();
 
+	Columns columns(matrix.vectors);
 	for (int i = 0; i < 4; i++)
-		matrix[i][3] = perspective[i];
+		columns[i][3] = perspective[i];
 
 	for (int i = 0; i < 4; i++)
 		for (int j = 0; j < 3; j++)
-			matrix[3][i] += translation[j] * matrix[j][i];
+			columns[3][i] += translation[j] * columns[j][i];
 
 	float x = quaternion.x;
 	float y = quaternion.y;

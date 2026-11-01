@@ -20,6 +20,9 @@ public:
 	enum class ReleaseMode { ReturnMesh, ClearMesh };
 
 	Geometry() = default;
+	~Geometry() noexcept { Release(); }
+	Geometry(Geometry&&) noexcept = default;
+	Geometry& operator=(Geometry&&) noexcept = default;
 
 	void Render(Vector2f translation, Texture texture = {}, const CompiledShader& shader = {}) const;
 

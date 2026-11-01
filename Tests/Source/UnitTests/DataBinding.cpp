@@ -705,11 +705,10 @@ TEST_CASE("data_binding.allow_missing_variables")
 	CHECK(document->GetElementById("bound")->GetInnerRML() == "clicked");
 	CHECK(document->GetElementById("aliased")->GetInnerRML() == "clicked");
 
-	// TODO: Test data-event-click assignment to a missing variable.
-	//       Currently triggers RMLUI_ERROR in the expression evaluator.
-	// document->GetElementById("set_missing")->DispatchEvent(EventId::Click, Dictionary());
-	// TestsShell::RenderLoop();
-	// CHECK(document->GetElementById("unbound")->GetInnerRML() == "");
+	// Assignment to a missing variable is ignored until it is bound.
+	document->GetElementById("set_missing")->DispatchEvent(EventId::Click, Dictionary());
+	TestsShell::RenderLoop();
+	CHECK(document->GetElementById("unbound")->GetInnerRML() == "");
 
 	// DirtyVariable on a bound variable propagates the update.
 	greeting = "dirty";

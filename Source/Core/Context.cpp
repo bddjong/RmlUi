@@ -13,6 +13,7 @@
 #include "../../Include/RmlUi/Core/SystemInterface.h"
 #include "DataModel.h"
 #include "EventDispatcher.h"
+#include "ElementFocus.h"
 #include "PluginRegistry.h"
 #include "ScrollController.h"
 #include "StreamFile.h"
@@ -269,21 +270,26 @@ ElementDocument* Context::CreateDocument(const String& instancer_name)
 
 ElementDocument* Context::LoadDocument(const String& document_path)
 {
+	PluginRegistry::NotifyDocumentOpen(this, document_path);
 	auto stream = MakeUnique<StreamFile>();
 
 	if (!stream->Open(document_path))
 		return nullptr;
 
-	ElementDocument* document = LoadDocument(stream.get());
+	ElementDocument* document = LoadDocumentFromStream(stream.get());
 
 	return document;
 }
 
 ElementDocument* Context::LoadDocument(Stream* stream)
 {
-	DebugVerifyLocaleSetting();
 	PluginRegistry::NotifyDocumentOpen(this, stream->GetSourceURL().GetURL());
+	return LoadDocumentFromStream(stream);
+}
 
+ElementDocument* Context::LoadDocumentFromStream(Stream* stream)
+{
+	DebugVerifyLocaleSetting();
 	ElementPtr element = Factory::InstanceDocumentStream(this, stream, GetDocumentsBaseTag());
 	if (!element)
 		return nullptr;
@@ -610,7 +616,7 @@ static Element* FindFocusElement(Element* element)
 	if (!owner_document || owner_document->GetComputedValues().focus() == Style::Focus::None)
 		return nullptr;
 
-	while (element && element->GetComputedValues().focus() == Style::Focus::None)
+	while (element && (element->GetComputedValues().focus() == Style::Focus::None || IsDisabledForFocus(element)))
 	{
 		element = element->GetParentNode();
 	}
@@ -1030,7 +1036,17 @@ bool Context::ProcessTouchCancel(const Touch& touch)
 
 	touch_states.erase(touch.identifier);
 
-	return ProcessMouseButtonUp(0, 0);
+	// A cancelled gesture must release visual state without clicking or dropping.
+	const bool result = !IsMouseInteracting();
+	ResetActiveChain();
+	if (drag_started)
+		ReleaseDragClone();
+	drag = nullptr;
+	drag_started = false;
+	drag_hover = nullptr;
+	drag_hover_chain.clear();
+	ProcessMouseButtonUp(0, 0);
+	return result;
 }
 
 void Context::SetDefaultScrollBehavior(ScrollBehavior scroll_behavior, float speed_factor)
@@ -1295,16 +1311,19 @@ void Context::UpdateHoverChain(Vector2i old_mouse_position, int key_modifier_sta
 				drag_start_parameters["mouse_x"] = old_mouse_position.x;
 				drag_start_parameters["mouse_y"] = old_mouse_position.y;
 				drag->DispatchEvent(EventId::Dragstart, drag_start_parameters);
-				drag_started = true;
+				// The listener may detach the dragged element and cancel the drag.
+				if (drag)
+					drag_started = true;
 
-				if (drag->GetComputedValues().drag() == Style::Drag::Clone)
+				if (drag && drag->GetComputedValues().drag() == Style::Drag::Clone)
 				{
 					// Clone the element and attach it to the mouse cursor.
 					CreateDragClone(drag);
 				}
 			}
 
-			drag->DispatchEvent(EventId::Drag, drag_parameters);
+			if (drag)
+				drag->DispatchEvent(EventId::Drag, drag_parameters);
 		}
 	}
 

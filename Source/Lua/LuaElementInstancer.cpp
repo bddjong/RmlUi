@@ -30,8 +30,21 @@ ElementPtr LuaElementInstancer::InstanceElement(Element* /*parent*/, const Strin
 		PushFunctionsTable(L);
 		lua_rawgeti(L, -1, ref_InstanceElement); // push the function
 		lua_pushstring(L, tag.c_str());          // push the tag
-		Interpreter::ExecuteCall(1, 1);          // we pass in a string, and we want to get an Element back
-		ret = std::move(*LuaType<ElementPtr>::check(L, -1));
+		if (Interpreter::ExecuteCall(1, 1))
+		{
+			// ElementPtr is an exact userdata type, not an inherited Element wrapper.
+			if (lua_type(L, -1) == LUA_TUSERDATA && lua_getmetatable(L, -1))
+			{
+				luaL_getmetatable(L, GetTClassName<ElementPtr>());
+				const bool matches = lua_rawequal(L, -1, -2) != 0;
+				lua_pop(L, 2);
+				if (matches)
+				{
+					if (ElementPtr* element = LuaType<ElementPtr>::check(L, -1))
+						ret = std::move(*element);
+				}
+			}
+		}
 	}
 	else
 	{

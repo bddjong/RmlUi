@@ -1,6 +1,8 @@
 import sys
 import os
 import subprocess
+import io
+import tempfile
 
 # Compiles all .frag and .vert files in this directory to SPIR-V, MSL, and DXIL binary C character arrays.
 #
@@ -22,7 +24,7 @@ if not os.path.isfile(shadercross_path):
 
 out_path = os.path.join(current_dir, out_file)
 
-with open(out_path,'w') as result_file:
+with io.StringIO() as result_file:
 	result_file.write('// RmlUi SDL GPU shaders compiled using command: \'python compile_shaders.py\'. Do not edit manually.\n\n#include <stdint.h>\n')
 
 	for file in os.listdir(current_dir):
@@ -56,3 +58,17 @@ with open(out_path,'w') as result_file:
 			compile("spirv")
 			compile("msl")
 			compile("dxil")
+
+	# Publish only after every shader has compiled successfully.
+	with tempfile.NamedTemporaryFile(mode='w', dir=current_dir, delete=False) as output:
+		temp_output_path = output.name
+		try:
+			output.write(result_file.getvalue())
+		except BaseException:
+			os.unlink(temp_output_path)
+			raise
+	try:
+		os.replace(temp_output_path, out_path)
+	except BaseException:
+		os.unlink(temp_output_path)
+		raise

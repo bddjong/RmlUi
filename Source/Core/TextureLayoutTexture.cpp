@@ -1,6 +1,7 @@
 #include "TextureLayoutTexture.h"
 #include "TextureDatabase.h"
 #include "TextureLayout.h"
+#include <cmath>
 
 namespace Rml {
 
@@ -22,7 +23,9 @@ int TextureLayoutTexture::Generate(TextureLayout& layout, int maximum_dimensions
 	// required by the remaining rectangles to place, square-root it to get the dimensions of the
 	// smallest texture necessary (under optimal circumstances) and round it up to the nearest
 	// power of two.
-	int square_pixels = 0;
+	double square_pixels = 0;
+	if (maximum_dimensions <= 0)
+		return 0;
 	int unplaced_rectangles = 0;
 	for (int i = 0; i < layout.GetNumRectangles(); ++i)
 	{
@@ -30,17 +33,21 @@ int TextureLayoutTexture::Generate(TextureLayout& layout, int maximum_dimensions
 
 		if (!rectangle.IsPlaced())
 		{
-			int x = rectangle.GetDimensions().x + 1;
-			int y = rectangle.GetDimensions().y + 1;
+			const double x = double(rectangle.GetDimensions().x) + 1;
+			const double y = double(rectangle.GetDimensions().y) + 1;
 
 			square_pixels += x * y;
 			++unplaced_rectangles;
 		}
 	}
 
-	int texture_width = int(Math::SquareRoot((float)square_pixels));
+	const double texture_width = std::sqrt(square_pixels);
 
-	dimensions.y = Math::ToPowerOfTwo(texture_width);
+	// Avoid converting or rounding an estimate beyond the usable texture size.
+	if (texture_width >= maximum_dimensions || texture_width >= (1 << 30))
+		dimensions.y = maximum_dimensions;
+	else
+		dimensions.y = Math::ToPowerOfTwo(int(texture_width));
 	dimensions.x = dimensions.y >> 1;
 
 	dimensions.x = Math::Min(dimensions.x, maximum_dimensions);
@@ -89,7 +96,7 @@ int TextureLayoutTexture::Generate(TextureLayout& layout, int maximum_dimensions
 			dimensions.x = dimensions.y;
 		else
 		{
-			if (dimensions.y << 1 > maximum_dimensions)
+			if (dimensions.y > maximum_dimensions / 2)
 				return num_placed_rectangles;
 
 			dimensions.y <<= 1;

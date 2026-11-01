@@ -219,6 +219,8 @@ String StringUtilities::DecodeRml(const String& s)
 
 String StringUtilities::Replace(String subject, const String& search, const String& replace)
 {
+	if (search.empty())
+		return subject;
 	size_t pos = 0;
 	while ((pos = subject.find(search, pos)) != String::npos)
 	{
@@ -612,14 +614,26 @@ StringIteratorU8::StringIteratorU8(const String& string, size_t offset) : view(s
 StringIteratorU8::StringIteratorU8(const String& string, size_t offset, size_t count) : view(string, 0, offset + count), p(string.data() + offset) {}
 StringIteratorU8& StringIteratorU8::operator++()
 {
-	RMLUI_ASSERT(p < view.end());
+	if (before_begin)
+	{
+		before_begin = false;
+		return *this;
+	}
+	if (p == view.end())
+		return *this;
 	++p;
 	SeekForward();
 	return *this;
 }
 StringIteratorU8& StringIteratorU8::operator--()
 {
-	RMLUI_ASSERT(p >= view.begin());
+	if (before_begin)
+		return *this;
+	if (p == view.begin())
+	{
+		before_begin = true;
+		return *this;
+	}
 	--p;
 	SeekBack();
 	return *this;

@@ -15,6 +15,8 @@ layout(location = 1) in vec4 fragColor;
 layout(location = 0) out vec4 finalColor;
 
 void main() {
+	// Bound singularities at the center, cell centers, and zero-height geometry.
+	const float epsilon = 0.000001;
 	float t = m_value;
 	vec3 c;
 	float l;
@@ -22,11 +24,11 @@ void main() {
 		vec2 p = fragTexCoord;
 		vec2 uv = p;
 		p -= .5;
-		p.x *= m_dimensions.x / m_dimensions.y;
+		p.x *= abs(m_dimensions.y) > epsilon ? m_dimensions.x / m_dimensions.y : 0.0;
 		float z = t + float(i) * .07;
 		l = length(p);
-		uv += p / l * (sin(z) + 1.) * abs(sin(l * 9. - z - z));
-		c[i] = .01 / length(mod(uv, 1.) - .5);
+		uv += p / max(l, epsilon) * (sin(z) + 1.) * abs(sin(l * 9. - z - z));
+		c[i] = .01 / max(length(mod(uv, 1.) - .5), epsilon);
 	}
-	finalColor = vec4(c / l, fragColor.a);
+	finalColor = vec4(c / max(l, epsilon), fragColor.a);
 }

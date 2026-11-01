@@ -1,4 +1,5 @@
 #include "LuaEventListener.h"
+#include "Event.h"
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Lua/Interpreter.h>
 #include <RmlUi/Lua/LuaType.h>
@@ -31,6 +32,7 @@ LuaEventListener::LuaEventListener(const String& code, Element* element) : Event
 	// compile,execute,and save the function
 	if (!Interpreter::LoadString(function, code) || !Interpreter::ExecuteCall(0, 1))
 	{
+		lua_settop(L, top);
 		return;
 	}
 
@@ -100,7 +102,8 @@ void LuaEventListener::ProcessEvent(Event& event)
 	// push the arguments
 	lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
 	lua_rawgeti(L, -1, luaFuncRef);
-	LuaType<Event>::push(L, &event, false);
+	EventScope event_scope(event);
+	event_scope.Push(L);
 	LuaType<Element>::push(L, attached, false);
 	LuaType<Document>::push(L, owner_document, false);
 

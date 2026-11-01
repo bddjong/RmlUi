@@ -257,7 +257,7 @@ void Backend::RequestExit()
 	data->running = false;
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
 	sf::RenderWindow& window = data->window;
@@ -282,6 +282,7 @@ void Backend::BeginFrame()
 
 	window.popGLStates();
 #endif
+	return true;
 }
 
 void Backend::PresentFrame()

@@ -13,6 +13,7 @@
 	#include <CoreFoundation/CoreFoundation.h>
 	#include <dirent.h>
 	#include <string.h>
+	#include <sys/stat.h>
 
 #elif defined RMLUI_PLATFORM_UNIX
 
@@ -226,8 +227,18 @@ static Rml::StringList ListFilesOrDirectories(ListType type, const Rml::String& 
 		if (strcmp(file_list[i]->d_name, ".") == 0 || strcmp(file_list[i]->d_name, "..") == 0)
 			continue;
 
-		bool is_directory = ((file_list[i]->d_type & DT_DIR) == DT_DIR);
-		bool is_file = ((file_list[i]->d_type & DT_REG) == DT_REG);
+		bool is_directory = file_list[i]->d_type == DT_DIR;
+		bool is_file = file_list[i]->d_type == DT_REG;
+		if (file_list[i]->d_type == DT_UNKNOWN)
+		{
+			struct stat info;
+			const Rml::String path = directory + "/" + file_list[i]->d_name;
+			if (stat(path.c_str(), &info) == 0)
+			{
+				is_directory = S_ISDIR(info.st_mode);
+				is_file = S_ISREG(info.st_mode);
+			}
+		}
 
 		if (!extension.empty())
 		{

@@ -30,10 +30,9 @@ TextureSource::TextureSource(String source, String document_path) : source(std::
 
 Texture TextureSource::GetTexture(RenderManager& render_manager) const
 {
-	Texture& texture = textures[&render_manager];
-	if (!texture)
-		texture = render_manager.LoadTexture(source, document_path);
-	return texture;
+	// The render manager already deduplicates file textures. Avoid retaining its
+	// address here, since a retired manager may be replaced at the same address.
+	return render_manager.LoadTexture(source, document_path);
 }
 
 const String& TextureSource::GetSource() const

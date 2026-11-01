@@ -21,17 +21,13 @@
 
 SB_INTERNAL SBBoolean OnceTryExecute(OnceRef once, void(*func)(void *info), void *info)
 {
-    SBBoolean result = SBTrue;
+    if (AtomicFlagTestAndSet(&once->flag) != SBFalse)
+        return SBFalse;
 
     if (!once->executed) {
-        result = AtomicFlagTestAndSet(&once->flag) == SBFalse;
-
-        if (result) {
-            func(info);
-            ThreadFence();
-            once->executed = SBTrue;
-        }
+        func(info);
+        once->executed = SBTrue;
     }
-
-    return result;
+    AtomicFlagClear(&once->flag);
+    return SBTrue;
 }

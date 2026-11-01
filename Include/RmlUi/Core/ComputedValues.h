@@ -6,6 +6,7 @@
 #include "StyleTypes.h"
 #include "Types.h"
 #include <cfloat>
+#include <cmath>
 
 namespace Rml {
 namespace Style {
@@ -77,8 +78,8 @@ namespace Style {
 
 		uint16_t border_top_width = 0, border_right_width = 0, border_bottom_width = 0, border_left_width = 0;
 
-		Colourb border_top_color{255, 255, 255}, border_right_color{255, 255, 255}, border_bottom_color{255, 255, 255},
-			border_left_color{255, 255, 255};
+		Colourb border_top_color{0, 0, 0}, border_right_color{0, 0, 0}, border_bottom_color{0, 0, 0},
+			border_left_color{0, 0, 0};
 
 		Colourb background_color = Colourb(0, 0, 0, 0);
 	};
@@ -312,10 +313,10 @@ namespace Style {
 		void bottom             (LengthPercentageAuto value) { common.bottom_type         = value.type; common.bottom_value         = value.value; }
 		void left               (LengthPercentageAuto value) { common.left_type           = value.type; common.left_value           = value.value; }
 		void z_index            (NumberAuto value)           { common.z_index_type        = value.type; common.z_index_value        = value.value; }
-		void border_top_width   (int16_t value)              { common.border_top_width    = value; }
-		void border_right_width (int16_t value)              { common.border_right_width  = value; }
-		void border_bottom_width(int16_t value)              { common.border_bottom_width = value; }
-		void border_left_width  (int16_t value)              { common.border_left_width   = value; }
+		void border_top_width   (uint16_t value)              { common.border_top_width    = value; }
+		void border_right_width (uint16_t value)              { common.border_right_width  = value; }
+		void border_bottom_width(uint16_t value)              { common.border_bottom_width = value; }
+		void border_left_width  (uint16_t value)              { common.border_left_width   = value; }
 		void box_sizing         (BoxSizing value)            { common.box_sizing          = value; }
 		void display            (Display value)              { common.display             = value; }
 		void position           (Position value)             { common.position            = value; }
@@ -367,10 +368,10 @@ namespace Style {
 		void perspective               (float value)             { rare.perspective                = value; }
 		void has_local_perspective     (bool value)              { rare.has_local_perspective      = value; }
 		void has_local_transform       (bool value)              { rare.has_local_transform        = value; }
-		void border_top_left_radius    (float value)             { rare.border_top_left_radius     = (int16_t)value; }
-		void border_top_right_radius   (float value)             { rare.border_top_right_radius    = (int16_t)value; }
-		void border_bottom_right_radius(float value)             { rare.border_bottom_right_radius = (int16_t)value; }
-		void border_bottom_left_radius (float value)             { rare.border_bottom_left_radius  = (int16_t)value; }
+		void border_top_left_radius    (float value)             { rare.border_top_left_radius     = (int16_t)(std::isnan(value) ? 0.f : (value < -32768.f ? -32768.f : (value > 32767.f ? 32767.f : value))); }
+		void border_top_right_radius   (float value)             { rare.border_top_right_radius    = (int16_t)(std::isnan(value) ? 0.f : (value < -32768.f ? -32768.f : (value > 32767.f ? 32767.f : value))); }
+		void border_bottom_right_radius(float value)             { rare.border_bottom_right_radius = (int16_t)(std::isnan(value) ? 0.f : (value < -32768.f ? -32768.f : (value > 32767.f ? 32767.f : value))); }
+		void border_bottom_left_radius (float value)             { rare.border_bottom_left_radius  = (int16_t)(std::isnan(value) ? 0.f : (value < -32768.f ? -32768.f : (value > 32767.f ? 32767.f : value))); }
 		void text_overflow             (TextOverflow value)      { rare.text_overflow              = value; }
 		void clip                      (Clip value)              { rare.clip                       = value; }
 		void drag                      (Drag value)              { rare.drag                       = value; }

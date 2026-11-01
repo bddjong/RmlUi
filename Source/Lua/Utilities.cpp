@@ -143,7 +143,13 @@ void GetVariant(lua_State* L, int index, Variant* variant)
 	{
 	case LUA_TBOOLEAN: *variant = (bool)lua_toboolean(L, index); break;
 	case LUA_TNUMBER: *variant = lua_tonumber(L, index); break;
-	case LUA_TSTRING: *variant = Rml::String(lua_tostring(L, index)); break;
+	case LUA_TSTRING:
+	{
+		size_t length = 0;
+		const char* value = lua_tolstring(L, index, &length);
+		*variant = Rml::String(value, length);
+	}
+	break;
 	case LUA_TLIGHTUSERDATA: *variant = lua_touserdata(L, index); break;
 	case LUA_TNIL:
 	default: // todo: support other types

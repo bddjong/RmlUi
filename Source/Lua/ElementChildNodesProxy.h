@@ -8,7 +8,7 @@ namespace Rml {
 namespace Lua {
 // where owner is the Element that we should look up information from
 struct ElementChildNodesProxy {
-	Element* owner;
+	ObserverPtr<Element> owner;
 };
 
 template <>

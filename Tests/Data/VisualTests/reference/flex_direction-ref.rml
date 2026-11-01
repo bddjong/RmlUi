@@ -7,17 +7,17 @@
 	<style>
 		.flex-container{
 			display:block;
-			margin:20px;
+			margin:20dp;
 			background-color: #333;
-			line-height: 0px;
+			line-height: 0dp;
 		}
 		.flex-item{
 			display: inline-block;
-			width:50px;
-			height:50px;
-			margin:20px 20px;
+			width:50dp;
+			height:50dp;
+			margin:20dp 20dp;
 			background-color: #eee;
-			line-height: 50px;
+			line-height: 50dp;
 			text-align: center;
 		}
 
@@ -29,35 +29,35 @@
 		}
 
 		.flex-container.flex-direction-column{
-			padding:20px 0px;
+			padding:20dp 0dp;
 		}
 
 		.flex-container.flex-direction-column .flex-item{
 			display: block;
-			margin:40px 20px;
+			margin:40dp 20dp;
 		}
 
 		.flex-container.flex-direction-column .flex-item.first{
-			margin-top:0px;
+			margin-top:0dp;
 		}
 		.flex-container.flex-direction-column .flex-item.last{
-			margin-bottom:0px;
+			margin-bottom:0dp;
 		}
 
 		.flex-container.flex-direction-column-reverse{
-			padding:20px 0px;
+			padding:20dp 0dp;
 		}
 
 		.flex-container.flex-direction-column-reverse .flex-item{
 			display: block;
-			margin:40px 20px;
+			margin:40dp 20dp;
 		}
 
 		.flex-container.flex-direction-column-reverse .flex-item.first{
-			margin-top:0px;
+			margin-top:0dp;
 		}
 		.flex-container.flex-direction-column-reverse .flex-item.last{
-			margin-bottom:0px;
+			margin-bottom:0dp;
 		}
 	</style>
 </head>

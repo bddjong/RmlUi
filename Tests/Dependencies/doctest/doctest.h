@@ -2721,15 +2721,15 @@ namespace detail {
 #define DOCTEST_CHECK_NOTHROW(...) [&] { try { __VA_ARGS__; return true; } catch (...) { return false; } }()
 #define DOCTEST_REQUIRE_NOTHROW(...) [&] { try { __VA_ARGS__; return true; } catch (...) { return false; } }()
 
-#define DOCTEST_WARN_THROWS_MESSAGE(expr, ...) [&] { try { __VA_ARGS__; return false; } catch (...) { return true; } }()
-#define DOCTEST_CHECK_THROWS_MESSAGE(expr, ...) [&] { try { __VA_ARGS__; return false; } catch (...) { return true; } }()
-#define DOCTEST_REQUIRE_THROWS_MESSAGE(expr, ...) [&] { try { __VA_ARGS__; return false; } catch (...) { return true; } }()
-#define DOCTEST_WARN_THROWS_AS_MESSAGE(expr, ex, ...) [&] { try { expr; } catch (__VA_ARGS__) { return true; } catch (...) { } return false; }()
-#define DOCTEST_CHECK_THROWS_AS_MESSAGE(expr, ex, ...) [&] { try { expr; } catch (__VA_ARGS__) { return true; } catch (...) { } return false; }()
-#define DOCTEST_REQUIRE_THROWS_AS_MESSAGE(expr, ex, ...) [&] { try { expr; } catch (__VA_ARGS__) { return true; } catch (...) { } return false; }()
-#define DOCTEST_WARN_NOTHROW_MESSAGE(expr, ...) [&] { try { __VA_ARGS__; return true; } catch (...) { return false; } }()
-#define DOCTEST_CHECK_NOTHROW_MESSAGE(expr, ...) [&] { try { __VA_ARGS__; return true; } catch (...) { return false; } }()
-#define DOCTEST_REQUIRE_NOTHROW_MESSAGE(expr, ...) [&] { try { __VA_ARGS__; return true; } catch (...) { return false; } }()
+#define DOCTEST_WARN_THROWS_MESSAGE(expr, ...) [&] { try { expr; return false; } catch (...) { return true; } }()
+#define DOCTEST_CHECK_THROWS_MESSAGE(expr, ...) [&] { try { expr; return false; } catch (...) { return true; } }()
+#define DOCTEST_REQUIRE_THROWS_MESSAGE(expr, ...) [&] { try { expr; return false; } catch (...) { return true; } }()
+#define DOCTEST_WARN_THROWS_AS_MESSAGE(expr, ex, ...) [&] { try { expr; } catch (ex) { return true; } catch (...) { } return false; }()
+#define DOCTEST_CHECK_THROWS_AS_MESSAGE(expr, ex, ...) [&] { try { expr; } catch (ex) { return true; } catch (...) { } return false; }()
+#define DOCTEST_REQUIRE_THROWS_AS_MESSAGE(expr, ex, ...) [&] { try { expr; } catch (ex) { return true; } catch (...) { } return false; }()
+#define DOCTEST_WARN_NOTHROW_MESSAGE(expr, ...) [&] { try { expr; return true; } catch (...) { return false; } }()
+#define DOCTEST_CHECK_NOTHROW_MESSAGE(expr, ...) [&] { try { expr; return true; } catch (...) { return false; } }()
+#define DOCTEST_REQUIRE_NOTHROW_MESSAGE(expr, ...) [&] { try { expr; return true; } catch (...) { return false; } }()
 
 #endif // DOCTEST_CONFIG_NO_EXCEPTIONS
 
@@ -3306,7 +3306,7 @@ namespace {
     // case insensitive strcmp
     int stricmp(const char* a, const char* b) {
         for(;; a++, b++) {
-            const int d = tolower(*a) - tolower(*b);
+            const int d = tolower(static_cast<unsigned char>(*a)) - tolower(static_cast<unsigned char>(*b));
             if(d != 0 || !*a)
                 return d;
         }
@@ -3660,6 +3660,10 @@ String& String::operator=(const String& other) {
 }
 
 String& String::operator+=(const String& other) {
+    if(this == &other) {
+        String copy(other);
+        return *this += copy;
+    }
     const size_type my_old_size = size();
     const size_type other_size  = other.size();
     const size_type total_size  = my_old_size + other_size;
@@ -3751,7 +3755,8 @@ String::size_type String::capacity() const {
 }
 
 String String::substr(size_type pos, size_type cnt) && {
-    cnt = std::min(cnt, size() - 1 - pos);
+    pos = std::min(pos, size());
+    cnt = std::min(cnt, size() - pos);
     char* cptr = c_str();
     memmove(cptr, cptr + pos, cnt);
     setSize(cnt);
@@ -3759,7 +3764,8 @@ String String::substr(size_type pos, size_type cnt) && {
 }
 
 String String::substr(size_type pos, size_type cnt) const & {
-    cnt = std::min(cnt, size() - 1 - pos);
+    pos = std::min(pos, size());
+    cnt = std::min(cnt, size() - pos);
     return String{ c_str() + pos, cnt };
 }
 
@@ -4937,7 +4943,7 @@ namespace detail {
         } else if(m_at & assertType::is_throws_as) { //!OCLINT bitwise operator in conditional
             m_failed = !m_threw_as;
         } else if(m_at & assertType::is_throws_with) { //!OCLINT bitwise operator in conditional
-            m_failed = !m_exception_string.check(m_exception);
+            m_failed = !m_threw || !m_exception_string.check(m_exception);
         } else if(m_at & assertType::is_nothrow) { //!OCLINT bitwise operator in conditional
             m_failed = m_threw;
         }
@@ -5186,7 +5192,7 @@ namespace {
 
             case '>':
                 // See: https://www.w3.org/TR/xml/#syntax
-                if (idx > 2 && m_str[idx - 1] == ']' && m_str[idx - 2] == ']')
+                if (idx >= 2 && m_str[idx - 1] == ']' && m_str[idx - 2] == ']')
                     os << "&gt;";
                 else
                     os << c;
@@ -5790,6 +5796,7 @@ namespace {
         };
 
         JUnitTestCaseData testCaseData;
+        size_t currentTestCaseStart = 0;
 
         // caching pointers/references to objects of these types - safe to do
         const ContextOptions& opt;
@@ -5813,7 +5820,7 @@ namespace {
             xml.writeDeclaration();
         }
 
-        void test_run_end(const TestRunStats& p) override {
+        void test_run_end(const TestRunStats&) override {
             // remove .exe extension - mainly to have the same output on UNIX and Windows
             std::string binary_name = skipPathFromFilename(opt.binary_name.c_str());
 #ifdef DOCTEST_PLATFORM_WINDOWS
@@ -5824,7 +5831,7 @@ namespace {
             xml.startElement("testsuite").writeAttribute("name", binary_name)
                     .writeAttribute("errors", testCaseData.totalErrors)
                     .writeAttribute("failures", testCaseData.totalFailures)
-                    .writeAttribute("tests", p.numAsserts);
+                    .writeAttribute("tests", testCaseData.testcases.size());
             if(opt.no_time_in_output == false) {
                 xml.writeAttribute("time", testCaseData.totalSeconds);
                 xml.writeAttribute("timestamp", JUnitTestCaseData::getCurrentTimestamp());
@@ -5861,6 +5868,7 @@ namespace {
         }
 
         void test_case_start(const TestCaseData& in) override {
+            currentTestCaseStart = testCaseData.testcases.size();
             testCaseData.add(skipPathFromFilename(in.m_file.c_str()), in.m_name);
             timer.start();
         }
@@ -5874,10 +5882,26 @@ namespace {
             testCaseData.add(skipPathFromFilename(in.m_file.c_str()), in.m_name);
         }
 
-        void test_case_end(const CurrentTestCaseStats&) override {
+        void test_case_end(const CurrentTestCaseStats& st) override {
             testCaseData.addTime(timer.getElapsedSeconds());
             testCaseData.appendSubcaseNamesToLastTestcase(deepestSubcaseStackNames);
             deepestSubcaseStackNames.clear();
+            if(st.testCaseSuccess) {
+                for(size_t i = currentTestCaseStart; i < testCaseData.testcases.size(); ++i) {
+                    auto& result = testCaseData.testcases[i];
+                    testCaseData.totalFailures -= static_cast<int>(result.failures.size());
+                    testCaseData.totalErrors -= static_cast<int>(result.errors.size());
+                    result.failures.clear();
+                    result.errors.clear();
+                }
+            } else {
+                // A decorator or timeout can fail a test without a failed assertion.
+                bool reported = false;
+                for(size_t i = currentTestCaseStart; i < testCaseData.testcases.size(); ++i)
+                    reported |= !testCaseData.testcases[i].failures.empty() || !testCaseData.testcases[i].errors.empty();
+                if(!reported)
+                    testCaseData.addFailure("Test case failed", "doctest", "Final test case result indicates failure.");
+            }
         }
 
         void test_case_exception(const TestCaseException& e) override {
@@ -6826,6 +6850,8 @@ int Context::run() {
     auto cleanup_and_return = [&]() {
         FatalConditionHandler::freeAltStackMem();
 
+        if(p->cout == &fstr)
+            p->cout = nullptr;
         if(fstr.is_open())
             fstr.close();
 

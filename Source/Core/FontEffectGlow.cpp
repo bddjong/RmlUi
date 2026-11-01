@@ -1,4 +1,5 @@
 #include "FontEffectGlow.h"
+#include "FontEffectLimits.h"
 #include "../../Include/RmlUi/Core/PropertyDefinition.h"
 #include "Memory.h"
 
@@ -21,7 +22,8 @@ bool FontEffectGlow::HasUniqueTexture() const
 
 bool FontEffectGlow::Initialise(int _width_outline, int _width_blur, Vector2i _offset)
 {
-	if (_width_outline < 0 || _width_blur < 0)
+	if (_width_outline < 0 || _width_blur < 0 || _width_outline > FontEffectLimits::max_width ||
+		_width_blur > FontEffectLimits::max_width)
 		return false;
 
 	width_outline = _width_outline;
@@ -80,18 +82,7 @@ bool FontEffectGlow::Initialise(int _width_outline, int _width_blur, Vector2i _o
 
 bool FontEffectGlow::GetGlyphMetrics(Vector2i& origin, Vector2i& dimensions, const FontGlyph& /*glyph*/) const
 {
-	if (dimensions.x * dimensions.y > 0)
-	{
-		origin.x += offset.x - combined_width;
-		origin.y += offset.y - combined_width;
-
-		dimensions.x += 2 * combined_width;
-		dimensions.y += 2 * combined_width;
-
-		return true;
-	}
-
-	return false;
+	return FontEffectLimits::ExpandMetrics(origin, dimensions, combined_width, offset);
 }
 
 void FontEffectGlow::GenerateGlyphTexture(byte* destination_data, const Vector2i destination_dimensions, int destination_stride,
@@ -132,10 +123,12 @@ FontEffectGlowInstancer::~FontEffectGlowInstancer() {}
 SharedPtr<FontEffect> FontEffectGlowInstancer::InstanceFontEffect(const String& /*name*/, const PropertyDictionary& properties)
 {
 	Vector2i offset;
-	int width_outline = properties.GetProperty(id_width_outline)->Get<int>();
-	int width_blur = properties.GetProperty(id_width_blur)->Get<int>();
-	offset.x = properties.GetProperty(id_offset_x)->Get<int>();
-	offset.y = properties.GetProperty(id_offset_y)->Get<int>();
+	int width_outline, width_blur;
+	if (!FontEffectLimits::ConvertWidth(properties.GetProperty(id_width_outline)->Get<float>(), width_outline) ||
+		!FontEffectLimits::ConvertWidth(properties.GetProperty(id_width_blur)->Get<float>(), width_blur) ||
+		!FontEffectLimits::ConvertLength(properties.GetProperty(id_offset_x)->Get<float>(), offset.x) ||
+		!FontEffectLimits::ConvertLength(properties.GetProperty(id_offset_y)->Get<float>(), offset.y))
+		return nullptr;
 	Colourb color = properties.GetProperty(id_color)->Get<Colourb>();
 
 	if (width_blur < 0)

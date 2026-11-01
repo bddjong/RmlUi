@@ -1733,7 +1733,7 @@ resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 D3D12MA::ALLOCATION_DESC allocationDesc = {};
 allocationDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
 
-D3D12Resource* resource;
+ID3D12Resource* resource;
 D3D12MA::Allocation* allocation;
 HRESULT hr = allocator->CreateResource(
     &allocationDesc,
@@ -1868,7 +1868,7 @@ for(;;)
     for(UINT i = 0; i < pass.MoveCount; ++i)
     {
         // Inspect pass.pMoves[i].pSrcAllocation, identify what buffer/texture it represents.
-        MyEngineResourceData* resData = (MyEngineResourceData*)pMoves[i].pSrcAllocation->GetPrivateData();
+        MyEngineResourceData* resData = (MyEngineResourceData*)pass.pMoves[i].pSrcAllocation->GetPrivateData();
             
         // Recreate this buffer/texture as placed at pass.pMoves[i].pDstTmpAllocation.
         D3D12_RESOURCE_DESC resDesc = ...
@@ -1881,6 +1881,7 @@ for(;;)
 
         // Store new resource in the pDstTmpAllocation.
         pass.pMoves[i].pDstTmpAllocation->SetResource(newRes);
+        newRes->Release();
 
         // Copy its content to the new place.
         cmdList->CopyResource(

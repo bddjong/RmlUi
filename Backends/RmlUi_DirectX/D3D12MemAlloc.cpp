@@ -1459,7 +1459,7 @@ void JsonWriter::ContinueString(LPCWSTR pStr)
                     if (hexDigit < 10)
                         m_SB.Add(L'0' + (WCHAR)hexDigit);
                     else
-                        m_SB.Add(L'A' + (WCHAR)hexDigit);
+                        m_SB.Add(L'A' + (WCHAR)(hexDigit - 10));
                 }
             }
             break;
@@ -4217,7 +4217,7 @@ void BlockMetadata_Linear::AddDetailedStatistics(DetailedStatistics& inoutStats)
         {
             // Find next non-null allocation or move nextAllocIndex to the end.
             while (nextAlloc2ndIndex < suballoc2ndCount &&
-                suballocations2nd[nextAlloc2ndIndex].privateData == NULL)
+                suballocations2nd[nextAlloc2ndIndex].type == SUBALLOCATION_TYPE_FREE)
             {
                 ++nextAlloc2ndIndex;
             }
@@ -4266,7 +4266,7 @@ void BlockMetadata_Linear::AddDetailedStatistics(DetailedStatistics& inoutStats)
     {
         // Find next non-null allocation or move nextAllocIndex to the end.
         while (nextAlloc1stIndex < suballoc1stCount &&
-            suballocations1st[nextAlloc1stIndex].privateData == NULL)
+            suballocations1st[nextAlloc1stIndex].type == SUBALLOCATION_TYPE_FREE)
         {
             ++nextAlloc1stIndex;
         }
@@ -4314,7 +4314,7 @@ void BlockMetadata_Linear::AddDetailedStatistics(DetailedStatistics& inoutStats)
         {
             // Find next non-null allocation or move nextAllocIndex to the end.
             while (nextAlloc2ndIndex != SIZE_MAX &&
-                suballocations2nd[nextAlloc2ndIndex].privateData == NULL)
+                suballocations2nd[nextAlloc2ndIndex].type == SUBALLOCATION_TYPE_FREE)
             {
                 --nextAlloc2ndIndex;
             }
@@ -4381,7 +4381,7 @@ void BlockMetadata_Linear::WriteAllocationInfoToJson(JsonWriter& json) const
         {
             // Find next non-null allocation or move nextAlloc2ndIndex to the end.
             while (nextAlloc2ndIndex < suballoc2ndCount &&
-                suballocations2nd[nextAlloc2ndIndex].privateData == NULL)
+                suballocations2nd[nextAlloc2ndIndex].type == SUBALLOCATION_TYPE_FREE)
             {
                 ++nextAlloc2ndIndex;
             }
@@ -4430,7 +4430,7 @@ void BlockMetadata_Linear::WriteAllocationInfoToJson(JsonWriter& json) const
     {
         // Find next non-null allocation or move nextAllocIndex to the end.
         while (nextAlloc1stIndex < suballoc1stCount &&
-            suballocations1st[nextAlloc1stIndex].privateData == NULL)
+            suballocations1st[nextAlloc1stIndex].type == SUBALLOCATION_TYPE_FREE)
         {
             ++nextAlloc1stIndex;
         }
@@ -4477,7 +4477,7 @@ void BlockMetadata_Linear::WriteAllocationInfoToJson(JsonWriter& json) const
         {
             // Find next non-null allocation or move nextAlloc2ndIndex to the end.
             while (nextAlloc2ndIndex != SIZE_MAX &&
-                suballocations2nd[nextAlloc2ndIndex].privateData == NULL)
+                suballocations2nd[nextAlloc2ndIndex].type == SUBALLOCATION_TYPE_FREE)
             {
                 --nextAlloc2ndIndex;
             }
@@ -4531,7 +4531,7 @@ void BlockMetadata_Linear::WriteAllocationInfoToJson(JsonWriter& json) const
         {
             // Find next non-null allocation or move nextAlloc2ndIndex to the end.
             while (nextAlloc2ndIndex < suballoc2ndCount &&
-                suballocations2nd[nextAlloc2ndIndex].privateData == NULL)
+                suballocations2nd[nextAlloc2ndIndex].type == SUBALLOCATION_TYPE_FREE)
             {
                 ++nextAlloc2ndIndex;
             }
@@ -4578,7 +4578,7 @@ void BlockMetadata_Linear::WriteAllocationInfoToJson(JsonWriter& json) const
     {
         // Find next non-null allocation or move nextAllocIndex to the end.
         while (nextAlloc1stIndex < suballoc1stCount &&
-            suballocations1st[nextAlloc1stIndex].privateData == NULL)
+            suballocations1st[nextAlloc1stIndex].type == SUBALLOCATION_TYPE_FREE)
         {
             ++nextAlloc1stIndex;
         }
@@ -4626,7 +4626,7 @@ void BlockMetadata_Linear::WriteAllocationInfoToJson(JsonWriter& json) const
         {
             // Find next non-null allocation or move nextAlloc2ndIndex to the end.
             while (nextAlloc2ndIndex != SIZE_MAX &&
-                suballocations2nd[nextAlloc2ndIndex].privateData == NULL)
+                suballocations2nd[nextAlloc2ndIndex].type == SUBALLOCATION_TYPE_FREE)
             {
                 --nextAlloc2ndIndex;
             }
@@ -6334,6 +6334,8 @@ private:
     wchar_t* m_Name;
     PoolPimpl* m_PrevPool = NULL;
     PoolPimpl* m_NextPool = NULL;
+public:
+    bool m_Registered = false;
 
     void FreeName();
 };
@@ -7112,19 +7114,14 @@ void AllocatorPimpl::GetBudget(Budget* outLocalBudget, Budget* outNonLocalBudget
 #if D3D12MA_DXGI_1_4
     if (m_Adapter3)
     {
-        if (!m_Budget.ShouldUpdateBudget())
-        {
-            m_Budget.GetBudget(m_UseMutex,
-                outLocalBudget ? &outLocalBudget->UsageBytes : NULL,
-                outLocalBudget ? &outLocalBudget->BudgetBytes : NULL,
-                outNonLocalBudget ? &outNonLocalBudget->UsageBytes : NULL,
-                outNonLocalBudget ? &outNonLocalBudget->BudgetBytes : NULL);
-        }
-        else
-        {
+        if (m_Budget.ShouldUpdateBudget())
             UpdateD3D12Budget();
-            GetBudget(outLocalBudget, outNonLocalBudget); // Recursion
-        }
+        // Use the last cached values if the refresh failed. Retry on a later call.
+        m_Budget.GetBudget(m_UseMutex,
+            outLocalBudget ? &outLocalBudget->UsageBytes : NULL,
+            outLocalBudget ? &outLocalBudget->BudgetBytes : NULL,
+            outNonLocalBudget ? &outNonLocalBudget->UsageBytes : NULL,
+            outNonLocalBudget ? &outNonLocalBudget->BudgetBytes : NULL);
     }
     else
 #endif
@@ -7432,7 +7429,7 @@ void AllocatorPimpl::BuildStatsString(WCHAR** ppStatsString, BOOL detailedMap)
                             json.EndString(heapSubTypeName[heapSubType]);
 
                             json.BeginObject();
-                            writeHeapInfo(m_BlockVectors[heapType + heapSubType], m_CommittedAllocations + heapType, false);
+                            writeHeapInfo(m_BlockVectors[heapType * 3 + heapSubType], m_CommittedAllocations + heapType, false);
                             json.EndObject();
                         }
                     }
@@ -7530,7 +7527,8 @@ HRESULT AllocatorPimpl::AllocateCommittedResource(
                 }
                 res->Release();
             }
-            FreeHeapMemory(*ppAllocation);
+            (*ppAllocation)->Release();
+            *ppAllocation = NULL;
         }
         return hr;
     }
@@ -7645,7 +7643,8 @@ HRESULT AllocatorPimpl::AllocateCommittedResource2(
                 }
                 res->Release();
             }
-            FreeHeapMemory(*ppAllocation);
+            (*ppAllocation)->Release();
+            *ppAllocation = NULL;
         }
         return hr;
     }
@@ -9433,8 +9432,8 @@ void DefragmentationContextPimpl::UpdateVectorStatistics(BlockVector& vector, St
         state.avgAllocSize += metadata->GetSize();
     }
 
-    state.avgAllocSize = (state.avgAllocSize - state.avgFreeSize) / allocCount;
-    state.avgFreeSize /= freeCount;
+    state.avgAllocSize = allocCount ? (state.avgAllocSize - state.avgFreeSize) / allocCount : 0;
+    state.avgFreeSize = freeCount ? state.avgFreeSize / freeCount : 0;
 }
 #endif // _D3D12MA_DEFRAGMENTATION_CONTEXT_PIMPL_FUNCTIONS
 
@@ -9907,7 +9906,8 @@ Pool::Pool(Allocator* allocator, const POOL_DESC& desc)
 
 Pool::~Pool()
 {
-    m_Pimpl->GetAllocator()->UnregisterPool(this, m_Pimpl->GetDesc().HeapProperties.Type);
+    if (m_Pimpl->m_Registered)
+        m_Pimpl->GetAllocator()->UnregisterPool(this, m_Pimpl->GetDesc().HeapProperties.Type);
 
     D3D12MA_DELETE(m_Pimpl->GetAllocator()->GetAllocs(), m_Pimpl);
 }
@@ -10026,6 +10026,7 @@ HRESULT Allocator::CreatePool(
     if (SUCCEEDED(hr))
     {
         m_Pimpl->RegisterPool(*ppPool, pPoolDesc->HeapProperties.Type);
+        (*ppPool)->m_Pimpl->m_Registered = true;
     }
     else
     {

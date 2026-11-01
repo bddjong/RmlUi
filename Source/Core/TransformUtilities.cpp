@@ -16,17 +16,22 @@ static Vector3f Combine(const Vector3f a, const Vector3f b, float a_scale, float
 }
 
 // Interpolate two quaternions a, b with weight alpha [0, 1]
-static Vector4f QuaternionSlerp(const Vector4f a, const Vector4f b, float alpha)
+static Vector4f QuaternionSlerp(const Vector4f a, Vector4f b, float alpha)
 {
 	using namespace Math;
 
 	const float eps = 0.9995f;
 
 	float dot = a.DotProduct(b);
+	if (dot < 0.f)
+	{
+		b = b * -1.f;
+		dot = -dot;
+	}
 	dot = Clamp(dot, -1.f, 1.f);
 
 	if (dot > eps)
-		return a;
+		return (a * (1.f - alpha) + b * alpha).Normalise();
 
 	float theta = ACos(dot);
 	float w = Sin(alpha * theta) / SquareRoot(1.f - dot * dot);
@@ -705,7 +710,7 @@ bool TransformUtilities::Decompose(Transforms::DecomposedMatrix4& d, const Matri
 		Matrix4f p_inv = p;
 		if (!p_inv.Invert())
 			return false;
-		auto& p_inv_trans = p.Transpose();
+		auto p_inv_trans = p_inv.Transpose();
 		d.perspective = p_inv_trans * rhs;
 	}
 	else

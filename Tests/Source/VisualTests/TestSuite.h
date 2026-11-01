@@ -53,8 +53,10 @@ public:
 private:
 	int GetIndexFiltered(int new_index, Direction filter_direction) const
 	{
-		if (filter_direction == Direction::None || filtered_tests_indices.empty())
+		if (filter_direction == Direction::None || filter.empty())
 			return new_index;
+		if (filtered_tests_indices.empty())
+			return -1;
 
 		auto it = std::lower_bound(filtered_tests_indices.begin(), filtered_tests_indices.end(), new_index);
 

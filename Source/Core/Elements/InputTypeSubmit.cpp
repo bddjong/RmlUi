@@ -7,7 +7,11 @@ namespace Rml {
 
 InputTypeSubmit::InputTypeSubmit(ElementFormControlInput* element) : InputType(element) {}
 
-InputTypeSubmit::~InputTypeSubmit() {}
+InputTypeSubmit::~InputTypeSubmit()
+{
+	if (value_element)
+		element->RemoveChild(value_element);
+}
 bool InputTypeSubmit::IsSubmitted()
 {
 	// Submit buttons are never submitted; they submit themselves if appropriate.
@@ -20,8 +24,12 @@ bool InputTypeSubmit::OnAttributeChange(const ElementAttributes& changed_attribu
 	{
 		auto value = element->GetAttribute<String>("value", "");
 		if (!value.empty() && !value_element)
-			value_element =
-				rmlui_static_cast<ElementText*>(element->AppendChild(Factory::InstanceElement(element, "#text", "", XMLAttributes()), true));
+		{
+			ElementPtr text = Factory::InstanceElement(element, "#text", "", XMLAttributes());
+			value_element = rmlui_dynamic_cast<ElementText*>(text.get());
+			if (value_element)
+				element->AppendChild(std::move(text), true);
+		}
 
 		if (value_element)
 			value_element->SetText(value);

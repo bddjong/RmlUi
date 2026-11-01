@@ -9,6 +9,8 @@
 #include "../../Include/RmlUi/Core/Profiling.h"
 #include "../../Include/RmlUi/Core/RenderManager.h"
 #include "ElementStyle.h"
+#include <cmath>
+#include <limits>
 
 namespace Rml {
 
@@ -62,8 +64,15 @@ BoxShadowGeometryInfo GeometryBoxShadow::Resolve(Element* element, const CornerS
 		texture_region = texture_region.Extend(-extend_min, extend_max);
 		Math::ExpandToPixelGrid(texture_region);
 
-		element_offset_in_texture = -texture_region.TopLeft();
-		texture_dimensions = Vector2i(texture_region.Size());
+		const Vector2f size = texture_region.Size();
+		// An unrepresentable texture cannot be rendered. Avoid converting it to int,
+		// and let the zero-sized scissor region skip texture generation.
+		if (std::isfinite(size.x) && std::isfinite(size.y) && size.x >= 0 && size.y >= 0 &&
+			double(size.x) <= double(std::numeric_limits<int>::max()) && double(size.y) <= double(std::numeric_limits<int>::max()))
+		{
+			element_offset_in_texture = -texture_region.TopLeft();
+			texture_dimensions = Vector2i(size);
+		}
 	}
 
 	// Since we can reuse textures across multiple box shadows with the same properties,

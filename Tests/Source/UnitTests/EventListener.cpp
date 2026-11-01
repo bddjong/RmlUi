@@ -134,3 +134,85 @@ TEST_CASE("event_listener.replace_current_element")
 	Rml::Factory::RegisterEventListenerInstancer(nullptr);
 	TestsShell::ShutdownShell();
 }
+
+namespace {
+class InputRegressionListener : public EventListener {
+public:
+	int count = 0;
+	Element* remove_parent = nullptr;
+	void ProcessEvent(Event&) override
+	{
+		++count;
+		if (remove_parent)
+			remove_parent->SetInnerRML("");
+	}
+};
+}
+
+TEST_CASE("input.cancel_and_detached_drag")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+	<rml><head><style>
+	body { left: 0; top: 0; width: 200px; height: 200px; margin: 0; font-family: LatoLatin; }
+	#target { display: block; width: 100px; height: 100px; drag: clone; }
+	</style></head><body><div id='parent'><button id='target'>target</button></div></body></rml>)");
+	REQUIRE(document);
+	document->Show();
+	TestsShell::RenderLoop();
+	Element* target = document->GetElementById("target");
+	REQUIRE(target);
+	InputRegressionListener click, mouseup, dragstart, drag, drop;
+	target->AddEventListener("click", &click);
+	target->AddEventListener("mouseup", &mouseup);
+	target->AddEventListener("dragstart", &dragstart);
+	target->AddEventListener("drag", &drag);
+	document->AddEventListener("dragdrop", &drop);
+
+	SUBCASE("detaching dragged element during dragstart")
+	{
+		dragstart.remove_parent = document->GetElementById("parent");
+		context->ProcessMouseMove(10, 10, 0);
+		context->ProcessMouseButtonDown(0, 0);
+		context->ProcessMouseMove(11, 10, 0);
+		CHECK(dragstart.count == 1);
+		CHECK(drag.count == 0);
+		context->ProcessMouseButtonUp(0, 0);
+	}
+	SUBCASE("detaching dragged ancestor during dragstart")
+	{
+		dragstart.remove_parent = document->GetElementById("parent")->GetParentNode();
+		context->ProcessMouseMove(10, 10, 0);
+		context->ProcessMouseButtonDown(0, 0);
+		context->ProcessMouseMove(11, 10, 0);
+		CHECK(dragstart.count == 1);
+		CHECK(drag.count == 0);
+		context->ProcessMouseButtonUp(0, 0);
+	}
+	SUBCASE("cancelled touch does not click")
+	{
+		TouchList touches{{1, Vector2f(10, 10)}};
+		context->ProcessTouchStart(touches, 0);
+		context->ProcessTouchCancel(touches);
+		CHECK(mouseup.count == 1);
+		CHECK(click.count == 0);
+		CHECK_FALSE(target->IsPseudoClassSet("active"));
+		context->ProcessTouchStart(touches, 0);
+		context->ProcessTouchEnd(touches, 0);
+		CHECK(click.count == 1);
+	}
+	SUBCASE("cancelled drag does not drop")
+	{
+		TouchList touches{{1, Vector2f(10, 10)}};
+		context->ProcessTouchStart(touches, 0);
+		touches[0].position = Vector2f(11, 10);
+		context->ProcessTouchMove(touches, 0);
+		CHECK(dragstart.count == 1);
+		context->ProcessTouchCancel(touches);
+		CHECK(click.count == 0);
+		CHECK(drop.count == 0);
+	}
+	document->Close();
+	TestsShell::ShutdownShell();
+}

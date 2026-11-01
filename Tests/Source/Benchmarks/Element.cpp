@@ -136,12 +136,12 @@ TEST_CASE("element.creation_and_destruction")
 
 	bench.run("Update (hover child)", [&] {
 		static nanobench::Rng rng;
-		child->SetPseudoClass(":hover", hover_toggle);
+		child->SetPseudoClass("hover", hover_toggle);
 		hover_toggle = !hover_toggle;
 		context->Update();
 	});
 	bench.run("Update (hover)", [&] {
-		el->SetPseudoClass(":hover", hover_toggle);
+		el->SetPseudoClass("hover", hover_toggle);
 		hover_toggle = !hover_toggle;
 		context->Update();
 	});
@@ -199,12 +199,12 @@ TEST_CASE("element.long_texts")
 
 	bench.run("Update (hover child)", [&] {
 		static nanobench::Rng rng;
-		child->SetPseudoClass(":hover", hover_toggle);
+		child->SetPseudoClass("hover", hover_toggle);
 		hover_toggle = !hover_toggle;
 		context->Update();
 	});
 	bench.run("Update (hover)", [&] {
-		el->SetPseudoClass(":hover", hover_toggle);
+		el->SetPseudoClass("hover", hover_toggle);
 		hover_toggle = !hover_toggle;
 		context->Update();
 	});

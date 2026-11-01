@@ -5,6 +5,7 @@
 #include "../../Include/RmlUi/Core/RenderInterface.h"
 #include "../../Include/RmlUi/Core/SystemInterface.h"
 #include "TextureDatabase.h"
+#include "BoxShadowCache.h"
 
 namespace Rml {
 
@@ -18,6 +19,7 @@ RenderManager::RenderManager(RenderInterface* render_interface) : render_interfa
 
 RenderManager::~RenderManager()
 {
+	BoxShadowCache::ReleaseRenderManager(this);
 	struct ResourceCount {
 		const char* name;
 		int count;

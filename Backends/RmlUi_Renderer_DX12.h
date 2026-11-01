@@ -246,7 +246,7 @@ public:
 		bool Is_Initialized() const;
 
 	private:
-		void Alloc_Buffer(size_t size
+		bool Alloc_Buffer(size_t size
 #ifdef RMLUI_DX_DEBUG
 			,
 			const std::wstring& debug_name

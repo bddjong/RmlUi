@@ -109,7 +109,10 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 	// Initialize the window but don't show it yet.
 	HWND window_handle = InitializeWindow(data->instance_handle, name, width, height, allow_resize);
 	if (!window_handle)
+	{
+		data.reset();
 		return false;
+	}
 
 	data->window_handle = window_handle;
 
@@ -117,13 +120,14 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 	settings.vsync = true;
 	settings.msaa_sample_count = RMLUI_RENDER_BACKEND_FIELD_MSAA_SAMPLE_COUNT;
 
-	Rml::String initialization_message;
 	data->render_interface = Rml::MakeUnique<RenderInterface_DX12>(window_handle, settings);
 
-	if (!data->render_interface)
+	if (!*data->render_interface)
 	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Could not initialize DirectX 12 render interface: %s", initialization_message.c_str());
-		::CloseWindow(window_handle);
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Could not initialize DirectX 12 render interface");
+		data->render_interface.reset();
+		::DestroyWindow(window_handle);
+		::UnregisterClassW(name.c_str(), data->instance_handle);
 		data.reset();
 		return false;
 	}
@@ -176,11 +180,23 @@ static bool NextEvent(MSG& message, UINT timeout)
 {
 	if (timeout != 0)
 	{
-		UINT_PTR timer_id = SetTimer(NULL, NULL, timeout, NULL);
+		UINT_PTR timer_id = SetTimer(NULL, 0, timeout, NULL);
+		if (!timer_id)
+		{
+			// Still wait for input or the timeout when a timer cannot be created.
+			MsgWaitForMultipleObjects(0, nullptr, FALSE, timeout, QS_ALLINPUT);
+			return PeekMessage(&message, nullptr, 0, 0, PM_REMOVE);
+		}
 		BOOL res = GetMessage(&message, NULL, 0, 0);
 		KillTimer(NULL, timer_id);
+		if (res <= 0)
+		{
+			if (res < 0)
+				message.message = WM_QUIT;
+			return true;
+		}
 		if (message.message != WM_TIMER || message.hwnd != nullptr || message.wParam != timer_id)
-			return res;
+			return true;
 	}
 	return PeekMessage(&message, nullptr, 0, 0, PM_REMOVE);
 }
@@ -204,14 +220,22 @@ bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_call
 	MSG message;
 	// Process events.
 	bool has_message = NextEvent(message, power_save ? static_cast<int>(Rml::Math::Min(context->GetNextUpdateDelay(), 10.0) * 1000.0) : 0);
-	while (has_message || !data->render_interface->IsSwapchainValid())
+	while (data->running && (has_message || !data->render_interface->IsSwapchainValid()))
 	{
 		if (has_message)
 		{
 			// Dispatch the message to our local event handler below.
+			if (message.message == WM_QUIT)
+			{
+				data->running = false;
+				break;
+			}
 			TranslateMessage(&message);
 			DispatchMessage(&message);
 		}
+
+		if (!data->running)
+			break;
 
 		// In some situations the swapchain may become invalid, such as when the window is minimized. In this state the renderer cannot accept any
 		// render calls. Since we don't have full control over the main loop here we may risk calls to Context::Render if we were to return. Instead,
@@ -219,7 +243,7 @@ bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_call
 		if (!data->render_interface->IsSwapchainValid())
 			data->render_interface->RecreateSwapchain();
 
-		has_message = NextEvent(message, 0);
+		has_message = NextEvent(message, data->render_interface->IsSwapchainValid() ? 0 : 16);
 	}
 
 	data->context = nullptr;
@@ -234,7 +258,7 @@ void Backend::RequestExit()
 	data->running = false;
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
 	RMLUI_ASSERT(data->render_interface);
@@ -244,6 +268,7 @@ void Backend::BeginFrame()
 		data->render_interface->BeginFrame();
 		data->render_interface->Clear();
 	}
+	return data->render_interface != nullptr;
 }
 
 void Backend::PresentFrame()
@@ -358,6 +383,7 @@ static HWND InitializeWindow(HINSTANCE instance_handle, const std::wstring& name
 	if (!window_handle)
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to create window");
+		UnregisterClassW(name.c_str(), instance_handle);
 		return nullptr;
 	}
 

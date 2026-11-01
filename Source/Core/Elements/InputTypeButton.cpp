@@ -7,7 +7,11 @@ namespace Rml {
 
 InputTypeButton::InputTypeButton(ElementFormControlInput* element) : InputType(element) {}
 
-InputTypeButton::~InputTypeButton() {}
+InputTypeButton::~InputTypeButton()
+{
+	if (value_element)
+		element->RemoveChild(value_element);
+}
 
 bool InputTypeButton::IsSubmitted()
 {
@@ -21,8 +25,12 @@ bool InputTypeButton::OnAttributeChange(const ElementAttributes& changed_attribu
 	{
 		auto value = element->GetAttribute<String>("value", "");
 		if (!value.empty() && !value_element)
-			value_element =
-				rmlui_static_cast<ElementText*>(element->AppendChild(Factory::InstanceElement(element, "#text", "", XMLAttributes()), true));
+		{
+			ElementPtr text = Factory::InstanceElement(element, "#text", "", XMLAttributes());
+			value_element = rmlui_dynamic_cast<ElementText*>(text.get());
+			if (value_element)
+				element->AppendChild(std::move(text), true);
+		}
 
 		if (value_element)
 			value_element->SetText(value);

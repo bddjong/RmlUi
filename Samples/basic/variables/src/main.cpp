@@ -120,8 +120,14 @@ int main(int /*argc*/, char** /*argv*/)
 	Shell::LoadFonts();
 
 	document = context->LoadDocument("basic/variables/data/variables.rml");
-	if (document)
-		document->Show();
+	if (!document)
+	{
+		Rml::Shutdown();
+		Backend::Shutdown();
+		Shell::Shutdown();
+		return -1;
+	}
+	document->Show();
 
 	context->ActivateTheme("dark", true);
 
@@ -130,9 +136,11 @@ int main(int /*argc*/, char** /*argv*/)
 	{
 		running = Backend::ProcessEvents(context, &ProcessKey, true);
 		context->Update();
-		Backend::BeginFrame();
-		context->Render();
-		Backend::PresentFrame();
+		if (Backend::BeginFrame())
+		{
+			context->Render();
+			Backend::PresentFrame();
+		}
 	}
 
 	Rml::Shutdown();

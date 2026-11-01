@@ -114,10 +114,11 @@ Vector4<Type>& Vector4<Type>::operator-=(const Vector4& rhs)
 template <typename Type>
 Vector4<Type>& Vector4<Type>::operator*=(const Type& rhs)
 {
-	x *= rhs;
-	y *= rhs;
-	z *= rhs;
-	w *= rhs;
+	const Type scalar = rhs;
+	x *= scalar;
+	y *= scalar;
+	z *= scalar;
+	w *= scalar;
 
 	return *this;
 }
@@ -125,10 +126,11 @@ Vector4<Type>& Vector4<Type>::operator*=(const Type& rhs)
 template <typename Type>
 Vector4<Type>& Vector4<Type>::operator/=(const Type& rhs)
 {
-	x /= rhs;
-	y /= rhs;
-	z /= rhs;
-	w /= rhs;
+	const Type scalar = rhs;
+	x /= scalar;
+	y /= scalar;
+	z /= scalar;
+	w /= scalar;
 
 	return *this;
 }

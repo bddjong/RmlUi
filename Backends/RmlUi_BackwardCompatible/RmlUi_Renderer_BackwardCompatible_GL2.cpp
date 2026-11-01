@@ -4,6 +4,7 @@
 #include <RmlUi/Core/Log.h>
 #include <RmlUi/Core/Platform.h>
 #include <string.h>
+#include <limits>
 
 #if defined RMLUI_PLATFORM_WIN32
 	#include "RmlUi_Include_Windows.h"
@@ -195,16 +196,24 @@ bool RenderInterface_BackwardCompatible_GL2::LoadTexture(Rml::TextureHandle& tex
 	}
 
 	char* buffer = new char[buffer_size];
-	file_interface->Read(buffer, buffer_size, file_handle);
+	const size_t bytes_read = file_interface->Read(buffer, buffer_size, file_handle);
 	file_interface->Close(file_handle);
+	if (bytes_read != buffer_size)
+	{
+		delete[] buffer;
+		return false;
+	}
 
 	TGAHeader header;
 	memcpy(&header, buffer, sizeof(TGAHeader));
 
 	int color_mode = header.bitsPerPixel / 8;
-	int image_size = header.width * header.height * 4; // We always make 32bit textures
+	const size_t width = static_cast<unsigned short>(header.width);
+	const size_t height = static_cast<unsigned short>(header.height);
+	const size_t id_length = static_cast<unsigned char>(header.idLength);
+	const size_t pixel_count = width * height;
 
-	if (header.dataType != 2)
+	if (header.dataType != 2 || header.colourMapType != 0 || !width || !height)
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24/32bit uncompressed TGAs are supported.");
 		delete[] buffer;
@@ -212,22 +221,29 @@ bool RenderInterface_BackwardCompatible_GL2::LoadTexture(Rml::TextureHandle& tex
 	}
 
 	// Ensure we have at least 3 colors
-	if (color_mode < 3)
+	if (header.bitsPerPixel != 24 && header.bitsPerPixel != 32)
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24 and 32bit textures are supported.");
 		delete[] buffer;
 		return false;
 	}
 
-	const char* image_src = buffer + sizeof(TGAHeader);
-	unsigned char* image_dest = new unsigned char[image_size];
+	const size_t data_offset = sizeof(TGAHeader) + id_length;
+	if (pixel_count > std::numeric_limits<size_t>::max() / 4 || data_offset > buffer_size ||
+		pixel_count > (buffer_size - data_offset) / color_mode)
+	{
+		delete[] buffer;
+		return false;
+	}
+	const char* image_src = buffer + data_offset;
+	unsigned char* image_dest = new unsigned char[pixel_count * 4];
 
 	// Targa is BGR, swap to RGB and flip Y axis
-	for (long y = 0; y < header.height; y++)
+	for (size_t y = 0; y < height; y++)
 	{
-		long read_index = y * header.width * color_mode;
-		long write_index = ((header.imageDescriptor & 32) != 0) ? read_index : (header.height - y - 1) * header.width * color_mode;
-		for (long x = 0; x < header.width; x++)
+		size_t read_index = y * width * color_mode;
+		size_t write_index = ((header.imageDescriptor & 32) != 0 ? y : height - y - 1) * width * 4;
+		for (size_t x = 0; x < width; x++)
 		{
 			image_dest[write_index] = image_src[read_index + 2];
 			image_dest[write_index + 1] = image_src[read_index + 1];
@@ -242,8 +258,8 @@ bool RenderInterface_BackwardCompatible_GL2::LoadTexture(Rml::TextureHandle& tex
 		}
 	}
 
-	texture_dimensions.x = header.width;
-	texture_dimensions.y = header.height;
+	texture_dimensions.x = static_cast<int>(width);
+	texture_dimensions.y = static_cast<int>(height);
 
 	bool success = GenerateTexture(texture_handle, image_dest, texture_dimensions);
 

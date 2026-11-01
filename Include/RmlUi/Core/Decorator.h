@@ -92,6 +92,9 @@ public:
 	/// This will use the document path where the 'decorator' property was declared to locate relative files, if available.
 	Texture GetTexture(const String& filename) const;
 
+	/// Resolve relative to the source of this property, falling back to the decorator source.
+	Texture GetTexture(const String& filename, const Property& property) const;
+
 	/// Get the render manager for the decorator being instanced.
 	RenderManager& GetRenderManager() const;
 

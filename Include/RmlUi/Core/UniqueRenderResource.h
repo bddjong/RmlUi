@@ -21,7 +21,7 @@ protected:
 	UniqueRenderResource() = default;
 	UniqueRenderResource(RenderManager* render_manager, Handle resource_handle) : render_manager(render_manager), resource_handle(resource_handle) {}
 
-	~UniqueRenderResource() noexcept { ReleaseInDerived(); }
+	~UniqueRenderResource() noexcept = default;
 
 	UniqueRenderResource(const UniqueRenderResource&) = delete;
 	UniqueRenderResource& operator=(const UniqueRenderResource&) = delete;
@@ -29,8 +29,11 @@ protected:
 	UniqueRenderResource(UniqueRenderResource&& other) noexcept { MoveFrom(other); }
 	UniqueRenderResource& operator=(UniqueRenderResource&& other) noexcept
 	{
-		ReleaseInDerived();
-		MoveFrom(other);
+		if (this != &other)
+		{
+			ReleaseInDerived();
+			MoveFrom(other);
+		}
 		return *this;
 	}
 

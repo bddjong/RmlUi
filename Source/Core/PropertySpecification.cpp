@@ -7,6 +7,7 @@
 #include "IdNameMap.h"
 #include "PropertyShorthandDefinition.h"
 #include <algorithm>
+#include <cstdlib>
 #include <limits.h>
 #include <stdint.h>
 
@@ -40,46 +41,37 @@ PropertySpecification::~PropertySpecification() {}
 PropertyDefinition& PropertySpecification::RegisterProperty(const String& property_name, const String& default_value, bool inherited,
 	bool forces_layout, PropertyId id)
 {
+	PropertyDefinition* result = TryRegisterProperty(property_name, default_value, inherited, forces_layout, id);
+	if (!result)
+		std::abort();
+	return *result;
+}
+
+PropertyDefinition* PropertySpecification::TryRegisterProperty(const String& property_name, const String& default_value, bool inherited,
+	bool forces_layout, PropertyId id)
+{
 	if (id == PropertyId::Invalid)
-		id = property_map->GetOrCreateId(property_name);
-	else
-		property_map->AddPair(id, property_name);
-
-	size_t index = (size_t)id;
-
-	if (index >= size_t(PropertyId::MaxNumIds))
+		id = property_map->NextId();
+	const size_t index = (size_t)id;
+	if (index >= size_t(PropertyId::MaxNumIds) || property_name.empty() || property_name == "invalid" ||
+		property_map->GetId(property_name) != PropertyId::Invalid || (index < properties.size() && properties[index]))
 	{
-		Log::Message(Log::LT_ERROR,
-			"Fatal error while registering property '%s': Maximum number of allowed properties exceeded. Continuing execution may lead to crash.",
-			property_name.c_str());
-		RMLUI_ERROR;
-		return *properties[0];
+		Log::Message(Log::LT_ERROR, "Cannot register property '%s': name or ID is invalid, already registered, or capacity exceeded.", property_name.c_str());
+		return nullptr;
 	}
 
-	if (index < properties.size())
-	{
-		// We don't want to owerwrite an existing entry.
-		if (properties[index])
-		{
-			Log::Message(Log::LT_ERROR, "While registering property '%s': The property is already registered.", property_name.c_str());
-			return *properties[index];
-		}
-	}
-	else
-	{
-		// Resize vector to hold the new index
+	auto definition = MakeUnique<PropertyDefinition>(id, default_value, inherited, forces_layout);
+	if (index >= properties.size())
 		properties.resize((index * 3) / 2 + 1);
-	}
-
-	// Create and insert the new property
-	properties[index] = MakeUnique<PropertyDefinition>(id, default_value, inherited, forces_layout);
+	if (!property_map->AddPair(id, property_name))
+		return nullptr;
+	properties[index] = std::move(definition);
 	property_ids.Insert(id);
 	if (inherited)
 		property_ids_inherited.Insert(id);
 	if (forces_layout)
 		property_ids_forcing_layout.Insert(id);
-
-	return *properties[index];
+	return properties[index].get();
 }
 
 const PropertyDefinition* PropertySpecification::GetProperty(PropertyId id) const
@@ -113,9 +105,14 @@ const PropertyIdSet& PropertySpecification::GetRegisteredPropertiesForcingLayout
 ShorthandId PropertySpecification::RegisterShorthand(const String& shorthand_name, const String& property_names, ShorthandType type, ShorthandId id)
 {
 	if (id == ShorthandId::Invalid)
-		id = shorthand_map->GetOrCreateId(shorthand_name);
-	else
-		shorthand_map->AddPair(id, shorthand_name);
+		id = shorthand_map->NextId();
+	const size_t index = (size_t)id;
+	if (index >= size_t(ShorthandId::MaxNumIds) || shorthand_name.empty() || shorthand_name == "invalid" ||
+		shorthand_map->GetId(shorthand_name) != ShorthandId::Invalid || (index < shorthands.size() && shorthands[index]))
+	{
+		Log::Message(Log::LT_ERROR, "Cannot register shorthand '%s': name or ID is invalid, already registered, or capacity exceeded.", shorthand_name.c_str());
+		return ShorthandId::Invalid;
+	}
 
 	StringList property_list;
 	StringUtilities::ExpandString(property_list, StringUtilities::ToLower(property_names));
@@ -176,28 +173,10 @@ ShorthandId PropertySpecification::RegisterShorthand(const String& shorthand_nam
 			(item.type == ShorthandItemType::Shorthand && item.shorthand_definition->inherited);
 	});
 
-	const size_t index = (size_t)id;
-
-	if (index >= size_t(ShorthandId::MaxNumIds))
-	{
-		Log::Message(Log::LT_ERROR, "Error while registering shorthand '%s': Maximum number of allowed shorthands exceeded.", shorthand_name.c_str());
-		return ShorthandId::Invalid;
-	}
-
-	if (index < shorthands.size())
-	{
-		// We don't want to overwrite an existing entry.
-		if (shorthands[index])
-		{
-			Log::Message(Log::LT_ERROR, "The shorthand '%s' already exists, ignoring.", shorthand_name.c_str());
-			return ShorthandId::Invalid;
-		}
-	}
-	else
-	{
-		// Resize vector to hold the new index
+	if (index >= shorthands.size())
 		shorthands.resize((index * 3) / 2 + 1);
-	}
+	if (!shorthand_map->AddPair(id, shorthand_name))
+		return ShorthandId::Invalid;
 
 	shorthands[index] = std::move(property_shorthand);
 	return id;
@@ -287,6 +266,10 @@ bool PropertySpecification::ParseShorthandDeclaration(PropertyDictionary& dictio
 	if (!shorthand_definition)
 		return false;
 
+	if ((shorthand_definition->type == ShorthandType::Box && shorthand_definition->items.size() != 4) ||
+		(shorthand_definition->type == ShorthandType::Flex && shorthand_definition->items.size() != 3))
+		return false;
+
 	const SplitOption split_option =
 		(shorthand_definition->type == ShorthandType::RecursiveCommaSeparated ? SplitOption::Comma : SplitOption::Whitespace);
 
@@ -357,16 +340,18 @@ bool PropertySpecification::ParseShorthandDeclaration(PropertyDictionary& dictio
 		default: RMLUI_ERROR; break;
 		}
 
+		Array<Property, 4> parsed_properties;
 		for (int i = 0; i < 4; i++)
 		{
 			RMLUI_ASSERT(shorthand_definition->items[i].type == ShorthandItemType::Property);
-			Property new_property;
+			Property& new_property = parsed_properties[i];
 			int value_index = box_side_to_value_index[i];
 			if (!shorthand_definition->items[i].property_definition->ParseValue(new_property, property_values[value_index]))
 				return false;
 
-			dictionary.SetProperty(shorthand_definition->items[i].property_definition->GetId(), new_property);
 		}
+		for (int i = 0; i < 4; i++)
+			dictionary.SetProperty(shorthand_definition->items[i].property_definition->GetId(), parsed_properties[i]);
 	}
 	else if (shorthand_definition->type == ShorthandType::RecursiveRepeat)
 	{
@@ -401,13 +386,26 @@ bool PropertySpecification::ParseShorthandDeclaration(PropertyDictionary& dictio
 
 		size_t subvalue_i = 0;
 		String temp_subvalue;
-		for (size_t i = 0; i < shorthand_definition->items.size() && subvalue_i < property_values.size(); i++)
+		for (size_t i = 0; i < shorthand_definition->items.size(); i++)
 		{
-			bool result = false;
-
-			const String* subvalue = &property_values[subvalue_i];
-
 			const ShorthandItem& item = shorthand_definition->items[i];
+			if (subvalue_i >= property_values.size())
+			{
+				if (!item.optional)
+					return false;
+				continue;
+			}
+			if (item.optional)
+			{
+				size_t required_after = 0;
+				for (size_t j = i + 1; j < shorthand_definition->items.size(); j++)
+					if (!shorthand_definition->items[j].optional)
+						required_after++;
+				if (property_values.size() - subvalue_i <= required_after)
+					continue;
+			}
+			bool result = false;
+			const String* subvalue = &property_values[subvalue_i];
 			if (item.repeats)
 			{
 				property_values.erase(property_values.begin(), property_values.begin() + subvalue_i);
@@ -427,8 +425,13 @@ bool PropertySpecification::ParseShorthandDeclaration(PropertyDictionary& dictio
 				return false;
 
 			if (item.repeats)
+			{
+				subvalue_i = property_values.size();
 				break;
+			}
 		}
+		if (subvalue_i != property_values.size())
+			return false;
 	}
 	else
 	{
@@ -669,8 +672,9 @@ PropertySpecification::ParsePropertyResult PropertySpecification::ParsePropertyV
 		}
 	}
 
-	if (state == VALUE)
-		SubmitValue();
+	if (state != VALUE)
+		return Error();
+	SubmitValue();
 
 	if (!split_values && values_list.size() > 1)
 		return Error();

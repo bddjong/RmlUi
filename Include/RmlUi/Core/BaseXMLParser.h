@@ -36,7 +36,7 @@ public:
 
 	/// Parses the given stream as an XML file, and calls the handlers when
 	/// interesting phenomena are encountered.
-	void Parse(Stream* stream);
+	bool Parse(Stream* stream);
 
 	/// Get the line number in the stream.
 	/// @return The line currently being processed in the XML stream.
@@ -67,8 +67,8 @@ private:
 	void HandleElementEndInternal(const String& name);
 	void HandleDataInternal(const String& data, XMLDataType type);
 
-	void ReadHeader();
-	void ReadBody();
+	bool ReadHeader();
+	bool ReadBody();
 	bool ReadOpenTag();
 
 	bool ReadCloseTag(size_t xml_index_tag);
@@ -90,6 +90,7 @@ private:
 	int line_number = 0;
 	int line_number_open_tag = 0;
 	int open_tag_depth = 0;
+	Vector<String> open_tags;
 
 	// Enabled when an attribute for inner xml data is encountered (see description in Register...() above).
 	bool inner_xml_data = false;

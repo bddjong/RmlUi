@@ -56,6 +56,8 @@ int Vector2i__div(lua_State* L)
 	Vector2i* lhs = LuaType<Vector2i>::check(L, 1);
 	RMLUI_CHECK_OBJ(lhs);
 	int rhs = (int)luaL_checkinteger(L, 2);
+	if (rhs == 0)
+		return luaL_error(L, "division by zero");
 
 	Vector2i* res = new Vector2i(0, 0);
 	(*res) = (*lhs) / rhs;

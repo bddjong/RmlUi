@@ -34,8 +34,13 @@ layout(location = 0) out vec4 finalColor;
 
 vec4 lerp_stop_colors(float t) {
 	vec4 color = m_stop_colors[0];
-	for (int i = 1; i < m_num_stops; i++)
-		color = mix(color, m_stop_colors[i], smoothstep(GET_STOP_POS(i - 1), GET_STOP_POS(i), t));
+	for (int i = 1; i < m_num_stops; i++) {
+		float previous = GET_STOP_POS(i - 1);
+		float current = GET_STOP_POS(i);
+		// Coincident stops form a hard transition; smoothstep requires ordered edges.
+		float blend = current > previous ? smoothstep(previous, current, t) : step(current, t);
+		color = mix(color, m_stop_colors[i], blend);
+	}
 	return color;
 }
 
@@ -44,7 +49,7 @@ void main() {
 	if (m_func == LINEAR || m_func == REPEATING_LINEAR) {
 		float dist_square = dot(m_v, m_v);
 		vec2 V = fragTexCoord.xy - m_p;
-		t = dot(m_v, V) / dist_square;
+		t = dist_square > 0.0 ? dot(m_v, V) / dist_square : 0.0;
 	}
 	else if (m_func == RADIAL || m_func == REPEATING_RADIAL) {
 		vec2 V = fragTexCoord.xy - m_p;
@@ -59,7 +64,8 @@ void main() {
 	if (m_func == REPEATING_LINEAR || m_func == REPEATING_RADIAL || m_func == REPEATING_CONIC) {
 		float t0 = GET_STOP_POS(0);
 		float t1 = GET_STOP_POS(m_num_stops - 1);
-		t = t0 + mod(t - t0, t1 - t0);
+		// A zero-width repeating gradient resolves to its last stop.
+		t = t1 > t0 ? t0 + mod(t - t0, t1 - t0) : t1;
 	}
 	finalColor = fragColor * lerp_stop_colors(t);
 }

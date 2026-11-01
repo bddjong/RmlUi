@@ -1,4 +1,5 @@
 #include "FontEffectBlur.h"
+#include "FontEffectLimits.h"
 #include "../../Include/RmlUi/Core/PropertyDefinition.h"
 #include "Memory.h"
 
@@ -19,7 +20,7 @@ bool FontEffectBlur::HasUniqueTexture() const
 
 bool FontEffectBlur::Initialise(int _width)
 {
-	if (_width <= 0)
+	if (_width <= 0 || _width > FontEffectLimits::max_width)
 		return false;
 
 	width = _width;
@@ -55,18 +56,7 @@ bool FontEffectBlur::Initialise(int _width)
 
 bool FontEffectBlur::GetGlyphMetrics(Vector2i& origin, Vector2i& dimensions, const FontGlyph& /*glyph*/) const
 {
-	if (dimensions.x * dimensions.y > 0)
-	{
-		origin.x -= width;
-		origin.y -= width;
-
-		dimensions.y += 2 * width;
-		dimensions.x += 2 * width;
-
-		return true;
-	}
-
-	return false;
+	return FontEffectLimits::ExpandMetrics(origin, dimensions, width);
 }
 
 void FontEffectBlur::GenerateGlyphTexture(byte* destination_data, const Vector2i destination_dimensions, int destination_stride,
@@ -100,8 +90,12 @@ SharedPtr<FontEffect> FontEffectBlurInstancer::InstanceFontEffect(const String& 
 	float width = properties.GetProperty(id_width)->Get<float>();
 	Colourb color = properties.GetProperty(id_color)->Get<Colourb>();
 
+	int width_int;
+	if (!FontEffectLimits::ConvertWidth(width, width_int))
+		return nullptr;
+
 	auto font_effect = MakeShared<FontEffectBlur>();
-	if (font_effect->Initialise(int(width)))
+	if (font_effect->Initialise(width_int))
 	{
 		font_effect->SetColour(color);
 		return font_effect;

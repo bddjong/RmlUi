@@ -7,6 +7,7 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/ElementScroll.h>
+#include <RmlUi/Core/Elements/ElementFormControlInput.h>
 #include <RmlUi/Core/Factory.h>
 #include <doctest.h>
 
@@ -300,6 +301,31 @@ TEST_CASE("Element")
 		clone = document->AppendChild(element->Clone());
 		context->Update();
 		CHECK(clone->GetProperty<String>("background-color") == "#0000ff");
+	}
+
+	SUBCASE("Replace non-DOM child preserves classification")
+	{
+		auto parent = document->CreateElement("div");
+		Element* dom = parent->AppendChild(document->CreateElement("span"));
+		Element* internal = parent->AppendChild(document->CreateElement("span"), false);
+		auto removed = parent->ReplaceChild(document->CreateElement("button"), internal);
+		CHECK(removed.get() == internal);
+		CHECK(parent->GetNumChildren() == 1);
+		CHECK(parent->GetNumChildren(true) == 2);
+		CHECK(parent->GetChild(0) == dom);
+	}
+
+	SUBCASE("Serialize attribute values")
+	{
+		auto parent = document->CreateElement("div");
+		Element* child = parent->AppendChild(document->CreateElement("span"));
+		child->SetAttribute("title", "a\" & <b>");
+		String serialized = parent->GetInnerRML();
+		CHECK(serialized.find("a&quot; &amp; &lt;b&gt;") != String::npos);
+		auto copy = document->CreateElement("div");
+		copy->SetInnerRML(serialized);
+		REQUIRE(copy->GetFirstChild());
+		CHECK(copy->GetFirstChild()->GetAttribute<String>("title", "") == "a\" & <b>");
 	}
 
 	SUBCASE("SetInnerRML")
@@ -679,6 +705,52 @@ TEST_CASE("Element.TransformStateAfterVisibilityChange")
 
 	CHECK(ElementTransform(pane) == window_transform);
 
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("Input type replacement and radio regrouping")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+<rml><body><form>
+<input id="range" type="text" min="10" max="50" step="5" value="35"/>
+<input id="a" type="radio" name="first" checked=""/>
+<input id="b" type="radio" name="second" checked=""/>
+</form></body></rml>)");
+	REQUIRE(document);
+	auto* range = rmlui_dynamic_cast<ElementFormControlInput*>(document->GetElementById("range"));
+	auto* a = document->GetElementById("a");
+	auto* b = document->GetElementById("b");
+	REQUIRE(range);
+	REQUIRE(a);
+	REQUIRE(b);
+	range->SetAttribute("type", "range");
+	CHECK(range->GetValue() == "35.000000");
+	range->SetAttribute("type", "text");
+	CHECK(range->GetValue() == "35");
+	range->SetAttribute("type", "range");
+	CHECK(range->GetValue() == "35.000000");
+	a->SetAttribute("name", "second");
+	CHECK(a->HasAttribute("checked"));
+	CHECK_FALSE(b->HasAttribute("checked"));
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("element.block_percentage_vertical_margins")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory("<rml><body><div style='display:block;width:200px;height:100px'><div id='child' style='display:block;height:10px;margin-top:10%;margin-bottom:20%'></div></div></body></rml>");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	Element* child = document->GetElementById("child");
+	REQUIRE(child);
+	CHECK(child->GetBox().GetEdge(BoxArea::Margin, BoxEdge::Top) == doctest::Approx(20.f));
+	CHECK(child->GetBox().GetEdge(BoxArea::Margin, BoxEdge::Bottom) == doctest::Approx(40.f));
 	document->Close();
 	TestsShell::ShutdownShell();
 }

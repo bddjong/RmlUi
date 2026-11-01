@@ -532,7 +532,7 @@ SBBoolean SBScriptRunIteratorMoveNext(SBScriptRunIteratorRef iterator)
         SBScript currentScript;
 
         /* Get script information for the paragraph */
-        scriptArray = textParagraph->scripts.items;
+        scriptArray = textParagraph->scripts.items + (parent->paragraphStart - textParagraph->index);
         currentScript = scriptArray[iterator->scriptIndex];
 
         /* Find the end of the current script run */
@@ -724,6 +724,7 @@ void SBAttributeRunIteratorSetupAttributeCollection(SBAttributeRunIteratorRef it
 void SBAttributeRunIteratorReset(SBAttributeRunIteratorRef iterator,
     SBUInteger index, SBUInteger length)
 {
+    SBUIntegerNormalizeRange(iterator->text->codeUnits.count, &index, &length);
     iterator->startIndex = index;
     iterator->endIndex = index + length;
     iterator->currentIndex = SBInvalidIndex;
@@ -843,6 +844,9 @@ SBTextRef SBVisualRunIteratorGetText(SBVisualRunIteratorRef iterator)
 
 void SBVisualRunIteratorReset(SBVisualRunIteratorRef iterator, SBUInteger index, SBUInteger length)
 {
+    if (iterator->bidiLine) {
+        SBLineRelease(iterator->bidiLine);
+    }
     ResetTextIterator(&iterator->parent, index, length);
     InitializeVisualRun(&iterator->currentRun);
 

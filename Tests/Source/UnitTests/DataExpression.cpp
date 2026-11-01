@@ -168,8 +168,12 @@ TEST_CASE("Data expressions")
 	handle.DirtyVariable("num_trolls");
 	CHECK(TestExpression("concatenate('It takes', num_trolls*3 + ' goats', 'to outsmart', num_trolls | number_suffix('troll','trolls'))") ==
 		"It takes,9 goats,to outsmart,3 trolls");
+	num_trolls = 1;
+	handle.DirtyVariable("num_trolls");
 
 	// Test that only one side of ternary is evaluated
+	CHECK(TestExpression("num_multi[0 + num_trolls]") == "right");
+	CHECK(TestExpression("num_multi[-1 + num_trolls]") == "left");
 	CHECK(TestExpression("true ? num_multi[0] : num_multi[999]") == "left");
 	CHECK(TestExpression("false ? num_multi[999] : num_multi[1]") == "right");
 }

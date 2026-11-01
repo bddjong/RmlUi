@@ -14,18 +14,24 @@ const char* XMLParseTools::FindTag(const char* tag, const char* string, bool clo
 {
 	const size_t length = strlen(tag);
 	const char* ptr = string;
-	bool found_closing = false;
 
 	while (*ptr)
 	{
 		// Check if the first character matches
-		if (tolower((*ptr)) == tag[0])
+		if (tolower((unsigned char)*ptr) == (unsigned char)tag[0])
 		{
 			// If it does, check the whole word
-			if (StringUtilities::StringCompareCaseInsensitive(StringView(ptr, ptr + length), StringView(tag, tag + length)))
+			if (strlen(ptr) >= length && StringUtilities::StringCompareCaseInsensitive(StringView(ptr, ptr + length), StringView(tag, tag + length)) &&
+				(ptr[length] == '\0' || ptr[length] == '/' || ptr[length] == '>' || StringUtilities::IsWhitespace(ptr[length])))
 			{
 				// Check for opening <, loop back in the string skipping white space and forward slashes if
 				// we're looking for the closing tag
+				if (ptr == string)
+				{
+					ptr++;
+					continue;
+				}
+				bool found_closing = false;
 				const char* tag_start = ptr - 1;
 				while (tag_start > string && (StringUtilities::IsWhitespace(*tag_start) || *tag_start == '/'))
 				{
@@ -61,7 +67,7 @@ bool XMLParseTools::ReadAttribute(const char*& string, String& name, String& val
 
 	// Look for the end of the attribute name
 	bool found_whitespace = false;
-	while (*ptr != '=' && *ptr != '>' && (!found_whitespace || StringUtilities::IsWhitespace(*ptr)))
+	while (*ptr && *ptr != '=' && *ptr != '>' && (!found_whitespace || StringUtilities::IsWhitespace(*ptr)))
 	{
 		if (StringUtilities::IsWhitespace(*ptr))
 			found_whitespace = true;
@@ -69,7 +75,7 @@ bool XMLParseTools::ReadAttribute(const char*& string, String& name, String& val
 			name += *ptr;
 		ptr++;
 	}
-	if (*ptr == '>')
+	if (!*ptr || *ptr == '>')
 		return false;
 
 	// If we stopped on an equals, parse the value
@@ -83,20 +89,24 @@ bool XMLParseTools::ReadAttribute(const char*& string, String& name, String& val
 				quoted = true;
 			ptr++;
 		}
-		if (*ptr == '>')
+		if (!*ptr || *ptr == '>')
 			return false;
 
 		// Store the value
-		while (*ptr != '\'' && *ptr != '"' && *ptr != '>' && (*ptr != ' ' || quoted))
+		while (*ptr && *ptr != '\'' && *ptr != '"' && *ptr != '>' && (*ptr != ' ' || quoted))
 		{
 			value += *ptr++;
 		}
-		if (*ptr == '>')
+		if (!*ptr || *ptr == '>')
 			return false;
 
 		// Advance passed the quote
 		if (quoted)
+		{
 			ptr++;
+			if (!*ptr)
+				return false;
+		}
 	}
 	else
 	{

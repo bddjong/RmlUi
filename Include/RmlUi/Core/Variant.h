@@ -5,6 +5,7 @@
 #include "TypeConverter.h"
 #include "Types.h"
 #include <type_traits>
+#include <new>
 
 namespace Rml {
 
@@ -138,7 +139,9 @@ private:
 	static constexpr size_t LOCAL_DATA_SIZE = (sizeof(TransitionList) > sizeof(String) ? sizeof(TransitionList) : sizeof(String));
 
 	Type type = NONE;
-	alignas(TransitionList) char data[LOCAL_DATA_SIZE];
+	// An unsigned-char array provides storage for nested objects in C++17.
+	// On Wasm, a vector may have weaker alignment than 64-bit scalar types.
+	alignas(TransitionList) alignas(uint64_t) alignas(double) unsigned char data[LOCAL_DATA_SIZE];
 };
 
 } // namespace Rml

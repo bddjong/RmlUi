@@ -75,6 +75,8 @@ TEST_CASE("PropertySpecification.ParsePropertyValues")
 	Parse(" red ", "red");
 	Parse("inline-block", "inline-block");
 
+	Parse("none (unterminated", {}, SplitOption::Whitespace, ParsePropertyResult::Error);
+	Parse("none \"unterminated", {}, SplitOption::Whitespace, ParsePropertyResult::Error);
 	Parse("none red", {"none", "red"});
 	Parse("none    red", {"none", "red"});
 	Parse("none\t \r \nred", {"none", "red"});
@@ -387,6 +389,13 @@ TEST_CASE("PropertyParser.Keyword")
 	Parse(values, "0", INT_MAX);
 	Parse(values, "2", INT_MAX);
 
+	const PropertyId boundary = specification.RegisterProperty("boundary", "", false, false)
+		.AddParser("keyword", "max=2147483647, reset=5, next").GetId();
+	PropertyDictionary boundary_properties;
+	REQUIRE(specification.ParsePropertyDeclaration(boundary_properties, boundary, "max"));
+	CHECK(boundary_properties.GetProperty(boundary)->Get<int>() == INT_MAX);
+	Parse(boundary, "next", 6);
+
 	const PropertyId numbers =
 		specification.RegisterProperty("numbers", "", false, false).AddParser("keyword", "a=10, b=20, c=30").AddParser("number").GetId();
 	Parse(numbers, "a", 10);
@@ -416,6 +425,7 @@ TEST_CASE("PropertyParser.InvalidShorthands")
 		String value;
 	};
 	Vector<TestCase> tests = {
+		{false, "margin", "12oops3px"},                          // Reject garbage inside number
 		{true, "margin", "10px "},                                  //
 		{true, "margin", "10px 20px "},                             //
 		{true, "margin", "10px 20px 30px "},                        //
@@ -448,6 +458,7 @@ TEST_CASE("PropertyParser.InvalidShorthands")
 		{false, "filter", "drop-shadow(10px blue 20px 30px)"},      // Wrong order
 		{false, "filter", "drop-shadow(blue 10px 20px 30px 40px)"}, // Too many values
 
+		{false, "transform", "tran"},                              // Truncated transform keyword
 		{true, "overflow", "hidden"},                               //
 		{true, "overflow", "scroll hidden"},                        //
 		{false, "overflow", ""},                                    // Too few values
@@ -467,4 +478,92 @@ TEST_CASE("PropertyParser.InvalidShorthands")
 
 	element.reset();
 	Rml::Shutdown();
+}
+
+TEST_CASE("PropertySpecification rejects incomplete box and flex definitions")
+{
+	TestsSystemInterface system_interface;
+	TestsRenderInterface render_interface;
+	SetRenderInterface(&render_interface);
+	SetSystemInterface(&system_interface);
+	Rml::Initialise();
+	{
+		PropertySpecification specification(1, 2);
+		specification.RegisterProperty("side", "0", false, false).AddParser("number");
+		auto box = specification.RegisterShorthand("box", "side", ShorthandType::Box);
+		auto flex = specification.RegisterShorthand("flex", "side", ShorthandType::Flex);
+		PropertyDictionary properties;
+		CHECK_FALSE(specification.ParseShorthandDeclaration(properties, box, "1"));
+		CHECK_FALSE(specification.ParseShorthandDeclaration(properties, flex, "1"));
+		CHECK(properties.GetProperties().empty());
+	}
+	Rml::Shutdown();
+}
+
+TEST_CASE("Comma shorthand requires all values and rejects excess")
+{
+	TestsSystemInterface system_interface;
+	TestsRenderInterface render_interface;
+	SetRenderInterface(&render_interface);
+	SetSystemInterface(&system_interface);
+	Rml::Initialise();
+	{
+		PropertySpecification specification(2, 2);
+		specification.RegisterProperty("first", "0", false, false).AddParser("number");
+		specification.RegisterProperty("second", "0", false, false).AddParser("number");
+		auto pair = specification.RegisterShorthand("pair", "first, second", ShorthandType::RecursiveCommaSeparated);
+		auto optional = specification.RegisterShorthand("optional", "first?, second", ShorthandType::RecursiveCommaSeparated);
+		PropertyDictionary values;
+		CHECK_FALSE(specification.ParseShorthandDeclaration(values, pair, "1, 2, 3"));
+		CHECK(specification.ParseShorthandDeclaration(values, optional, "2"));
+		CHECK(values.GetProperty(specification.GetProperty("second")->GetId()) != nullptr);
+	}
+	Rml::Shutdown();
+}
+
+TEST_CASE("PropertySpecification.animation_tokens")
+{
+	TestsSystemInterface system_interface;
+	TestsRenderInterface render_interface;
+	SetRenderInterface(&render_interface);
+	SetSystemInterface(&system_interface);
+	Rml::Initialise();
+	PropertyDictionary dictionary;
+	for (const char* value : {"spin 1sfoo", "spin 1ms", "spin 1s 2junk", "none, spin 1s", "none spin"})
+		CHECK_FALSE(StyleSheetSpecification::ParsePropertyDeclaration(dictionary, "animation", value));
+	for (const char* value : {"opacity 1sfoo", "opacity 1ms", "opacity 1s 2junk", "none, opacity 1s", "none opacity"})
+		CHECK_FALSE(StyleSheetSpecification::ParsePropertyDeclaration(dictionary, "transition", value));
+	CHECK(StyleSheetSpecification::ParsePropertyDeclaration(dictionary, "animation", "spin 1s"));
+	CHECK(StyleSheetSpecification::ParsePropertyDeclaration(dictionary, "transition", "opacity 1s"));
+	CHECK(StyleSheetSpecification::ParsePropertyDeclaration(dictionary, "animation", "none"));
+	CHECK(StyleSheetSpecification::ParsePropertyDeclaration(dictionary, "transition", "none"));
+	Rml::Shutdown();
+}
+
+TEST_CASE("PropertySpecification.RegistrationIsTransactional")
+{
+	PropertySpecification specification(0, 0);
+	const auto first = static_cast<PropertyId>(1);
+	const auto second = static_cast<PropertyId>(2);
+	auto* original = specification.TryRegisterProperty("first", "0", false, false, first);
+	REQUIRE(original);
+	CHECK(specification.TryRegisterProperty("other", "0", false, false, first) == nullptr);
+	CHECK(specification.TryRegisterProperty("first", "0", false, false, second) == nullptr);
+	CHECK(specification.GetProperty("first") == original);
+	CHECK(specification.GetProperty("other") == nullptr);
+	CHECK(specification.TryRegisterProperty("other", "0", false, false, second));
+	CHECK(specification.TryRegisterProperty("overflow", "0", false, false, PropertyId::MaxNumIds) == nullptr);
+	CHECK(specification.TryRegisterProperty("overflow", "0", false, false));
+
+	const auto shorthand = static_cast<ShorthandId>(1);
+	const auto next = static_cast<ShorthandId>(2);
+	CHECK(specification.RegisterShorthand("broken", "missing", ShorthandType::FallThrough, shorthand) == ShorthandId::Invalid);
+	CHECK(specification.GetShorthand("broken") == nullptr);
+	CHECK(specification.RegisterShorthand("valid", "first", ShorthandType::FallThrough, shorthand) == shorthand);
+	CHECK(specification.RegisterShorthand("collision", "first", ShorthandType::FallThrough, shorthand) == ShorthandId::Invalid);
+	CHECK(specification.RegisterShorthand("valid", "first", ShorthandType::FallThrough, next) == ShorthandId::Invalid);
+	CHECK(specification.GetShorthand("collision") == nullptr);
+	CHECK(specification.RegisterShorthand("broken", "other", ShorthandType::FallThrough, next) == next);
+	CHECK(specification.RegisterShorthand("auto-fail", "missing", ShorthandType::FallThrough) == ShorthandId::Invalid);
+	CHECK(specification.RegisterShorthand("auto-retry", "first", ShorthandType::FallThrough) == static_cast<ShorthandId>(3));
 }

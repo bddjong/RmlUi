@@ -127,6 +127,8 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 
 	if (!data->render_interface.Initialize(std::move(extensions), CreateSurface))
 	{
+		SDL_DestroyWindow(window);
+		SDL_Quit();
 		data.reset();
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to initialize Vulkan render interface");
 		return false;
@@ -306,10 +308,10 @@ void Backend::RequestExit()
 	data->running = false;
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
-	data->render_interface.BeginFrame();
+	return data->render_interface.BeginFrame();
 }
 
 void Backend::PresentFrame()

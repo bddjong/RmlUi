@@ -209,12 +209,13 @@ namespace Math {
 
 	RMLUICORE_API float RandomReal(float max_value)
 	{
-		return (std::rand() / (float)RAND_MAX) * max_value;
+		const float value = float((double(std::rand()) / (double(RAND_MAX) + 1.0)) * double(max_value));
+		return max_value > 0.f && value >= max_value ? std::nextafter(max_value, 0.f) : value;
 	}
 
 	RMLUICORE_API int RandomInteger(int max_value)
 	{
-		return (std::rand() % max_value);
+		return max_value > 0 ? (std::rand() % max_value) : 0;
 	}
 
 	RMLUICORE_API bool RandomBool()

@@ -104,6 +104,7 @@ bool EventDispatcher::DispatchEvent(Element* target_element, const EventId id, c
 	RMLUI_ASSERTMSG(!((int)default_action_phase & (int)EventPhase::Capture),
 		"We assume here that the default action phases cannot include capture phase.");
 
+	auto target = target_element->GetObserverPtr();
 	Vector<CollectedListener> listeners;
 	Vector<ObserverPtr<Element>> default_action_elements;
 
@@ -164,6 +165,7 @@ bool EventDispatcher::DispatchEvent(Element* target_element, const EventId id, c
 		if (element && listener)
 		{
 			listener->ProcessEvent(*event);
+			if (!target) return event->IsPropagating();
 		}
 
 		if (!event->IsImmediatePropagating())
@@ -181,6 +183,7 @@ bool EventDispatcher::DispatchEvent(Element* target_element, const EventId id, c
 			event->SetCurrentElement(element);
 			event->SetPhase(element == target_element ? EventPhase::Target : EventPhase::Bubble);
 			element->ProcessDefaultAction(*event);
+			if (!target) return event->IsPropagating();
 		}
 	}
 

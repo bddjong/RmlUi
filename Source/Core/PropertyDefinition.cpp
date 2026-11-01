@@ -1,6 +1,7 @@
 #include "../../Include/RmlUi/Core/PropertyDefinition.h"
 #include "../../Include/RmlUi/Core/Log.h"
 #include "../../Include/RmlUi/Core/StyleSheetSpecification.h"
+#include <limits>
 
 namespace Rml {
 
@@ -33,6 +34,7 @@ PropertyDefinition& PropertyDefinition::AddParser(const String& parser_name, con
 		StringUtilities::ExpandString(parameter_list, parser_parameters);
 
 		int parameter_value = 0;
+		bool next_value_valid = true;
 		for (const String& parameter : parameter_list)
 		{
 			// Look for an optional parameter value such as in "normal=400".
@@ -44,10 +46,18 @@ PropertyDefinition& PropertyDefinition::AddParser(const String& parser_name, con
 					Log::Message(Log::LT_ERROR, "Parser was added with invalid parameter '%s'.", parameter.c_str());
 					return *this;
 				}
+				next_value_valid = true;
+			}
+			if (!next_value_valid)
+			{
+				Log::Message(Log::LT_ERROR, "Parser parameter value overflow at '%s'.", parameter.c_str());
+				return *this;
 			}
 
 			new_parser.parameters[parameter.substr(0, i_equal)] = parameter_value;
-			parameter_value += 1;
+			next_value_valid = parameter_value != std::numeric_limits<int>::max();
+			if (next_value_valid)
+				++parameter_value;
 		}
 	}
 
@@ -120,7 +130,7 @@ bool PropertyDefinition::GetValue(String& value, const Property& property) const
 			if (name_keyword.second == keyword)
 			{
 				value = name_keyword.first;
-				break;
+				return true;
 			}
 		}
 

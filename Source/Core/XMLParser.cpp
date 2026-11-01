@@ -87,7 +87,7 @@ XMLNodeHandler* XMLParser::RegisterNodeHandler(const String& _tag, SharedPtr<XML
 
 XMLNodeHandler* XMLParser::GetNodeHandler(const String& tag)
 {
-	auto it = xml_parser_data->node_handlers.find(tag);
+	auto it = xml_parser_data->node_handlers.find(StringUtilities::ToLower(tag));
 	if (it != xml_parser_data->node_handlers.end())
 		return it->second.get();
 

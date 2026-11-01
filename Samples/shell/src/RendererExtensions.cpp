@@ -3,6 +3,7 @@
 #include <RmlUi/Core/Log.h>
 #include <RmlUi/Core/Platform.h>
 #include <RmlUi/Core/Traits.h>
+#include <limits>
 
 #if defined RMLUI_RENDERER_GL2
 
@@ -52,10 +53,34 @@ RendererExtensions::Image RendererExtensions::CaptureScreen()
 	if (image.width < 1 || image.height < 1)
 		return Image();
 
-	const int byte_size = image.width * image.height * image.num_components;
-	image.data = Rml::UniquePtr<Rml::byte[]>(new Rml::byte[byte_size]);
+	const size_t row_size = size_t(image.width) * size_t(image.num_components);
+	if (row_size / size_t(image.num_components) != size_t(image.width) ||
+		size_t(image.height) > std::numeric_limits<size_t>::max() / row_size)
+		return Image();
+	image.data = Rml::UniquePtr<Rml::byte[]>(new Rml::byte[row_size * size_t(image.height)]);
 
-	glReadPixels(0, 0, image.width, image.height, GL_RGB, GL_UNSIGNED_BYTE, image.data.get());
+	GLint alignment, row_length, skip_rows, skip_pixels;
+	glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+	glGetIntegerv(GL_PACK_ROW_LENGTH, &row_length);
+	glGetIntegerv(GL_PACK_SKIP_ROWS, &skip_rows);
+	glGetIntegerv(GL_PACK_SKIP_PIXELS, &skip_pixels);
+#if defined RMLUI_RENDERER_GL3
+	GLint pack_buffer;
+	glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pack_buffer);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+#endif
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+	glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+	glReadPixels(viewport[0], viewport[1], image.width, image.height, GL_RGB, GL_UNSIGNED_BYTE, image.data.get());
+	glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+	glPixelStorei(GL_PACK_ROW_LENGTH, row_length);
+	glPixelStorei(GL_PACK_SKIP_ROWS, skip_rows);
+	glPixelStorei(GL_PACK_SKIP_PIXELS, skip_pixels);
+#if defined RMLUI_RENDERER_GL3
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, pack_buffer);
+#endif
 
 	bool result = true;
 	GLenum err;

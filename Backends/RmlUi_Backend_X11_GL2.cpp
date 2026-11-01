@@ -275,11 +275,12 @@ void Backend::RequestExit()
 	data->running = false;
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
 	data->render_interface.BeginFrame();
 	data->render_interface.Clear();
+	return true;
 }
 
 void Backend::PresentFrame()

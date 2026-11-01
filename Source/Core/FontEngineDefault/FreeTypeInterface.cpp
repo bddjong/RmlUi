@@ -111,10 +111,9 @@ bool FreeType::GetFaceVariations(Span<const byte> data, Vector<FaceVariation>& o
 	if (error)
 		return true;
 
-	unsigned int axis_index_weight = 0;
-	unsigned int axis_index_width = 1;
-
 	const unsigned int num_axis = var->num_axis;
+	unsigned int axis_index_weight = num_axis;
+	unsigned int axis_index_width = num_axis;
 	for (unsigned int i = 0; i < num_axis; i++)
 	{
 		switch (var->axis[i].tag)
@@ -344,6 +343,7 @@ static bool BuildGlyph(FT_Face ft_face, const Character character, FontGlyphMap&
 		Rml::Log::Message(Rml::Log::LT_WARNING, "Unable to load glyph at index '%u' in font face '%s %s'; FreeType error 0x%x.",
 			(unsigned int)index, ft_face->family_name, ft_face->style_name, error);
 #endif
+		return false;
 	}
 
 	error = FT_Render_Glyph(ft_face->glyph, render_mode);
@@ -357,6 +357,7 @@ static bool BuildGlyph(FT_Face ft_face, const Character character, FontGlyphMap&
 		Rml::Log::Message(Rml::Log::LT_WARNING, "Unable to render glyph at index '%u' in font face '%s %s'; FreeType error 0x%x.",
 			(unsigned int)index, ft_face->family_name, ft_face->style_name, error);
 #endif
+		return false;
 	}
 
 	auto result = glyphs.emplace(character, FontGlyph{});

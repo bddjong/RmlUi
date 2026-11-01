@@ -115,6 +115,11 @@ SB_INTERNAL void StatusStackPop(StatusStackRef stack)
     /* The stack should not be empty. */
     SBAssert(stack->count > 0);
 
+    if (stack->count == 1) {
+        StatusStackSetEmpty(stack);
+        return;
+    }
+
     if (stack->_peekTop != 0) {
         stack->_peekTop -= 1;
     } else {

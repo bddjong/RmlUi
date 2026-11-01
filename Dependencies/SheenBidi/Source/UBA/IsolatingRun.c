@@ -245,8 +245,8 @@ static SBBoolean ResolveBrackets(IsolatingRunRef isolatingRun)
             switch (bracketType) {
             case BracketTypeOpen:
                 if (BracketQueueGetOpenPairCount(queue) >= BracketQueueMaxOpenPairs) {
-                    /* Stop further processing. */
-                    return SBTrue;
+                    /* Stop scanning, but resolve pairs already found. */
+                    goto finish_brackets;
                 }
                 if (!BracketQueueEnqueue(queue, priorStrongLink, link, bracketValue)) {
                     return SBFalse;
@@ -271,6 +271,7 @@ static SBBoolean ResolveBrackets(IsolatingRunRef isolatingRun)
         }
     }
 
+finish_brackets:
     BracketQueueMarkPopulated(queue);
     ResolveAvailableBracketPairs(isolatingRun);
 

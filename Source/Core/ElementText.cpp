@@ -544,6 +544,7 @@ void ElementText::GenerateGeometry(RenderManager& render_manager, const FontFace
 				continue;
 
 			String abbreviated_text;
+			bool abbreviated = false;
 			StringView text_submit_view = line.text;
 			StringIteratorU8 view(line.text, line.text.size());
 			--view;
@@ -558,10 +559,11 @@ void ElementText::GenerateGeometry(RenderManager& render_manager, const FontFace
 				abbreviated_text.append(text_overflow.overflow_text);
 				line.width = GetFontEngineInterface()->GetStringWidth(font_face_handle, abbreviated_text, text_shaping_context);
 				text_submit_view = abbreviated_text;
+				abbreviated = true;
 			}
 
 			line.width = GetFontEngineInterface()->GenerateString(render_manager, font_face_handle, font_effects_handle, text_submit_view,
-				line.position, colour, opacity, text_shaping_context, mesh_list);
+				line.position, colour, opacity, abbreviated ? text_shaping_context : context_for_line(line), mesh_list);
 		}
 	}
 

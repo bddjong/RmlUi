@@ -21,16 +21,21 @@ protected:
 	}
 
 public:
-	void AddPair(ID id, const String& name)
+	bool AddPair(ID id, const String& name)
 	{
-		// Should only be used for defined IDs
-		if ((size_t)id >= name_map.size())
-			name_map.resize(1 + (size_t)id);
-		name_map[(size_t)id] = name;
-		bool inserted = reverse_map.emplace(name, id).second;
-		RMLUI_ASSERT(inserted);
-		(void)inserted;
+		const size_t index = (size_t)id;
+		if (name.empty() || reverse_map.find(name) != reverse_map.end() ||
+			(index < name_map.size() && !name_map[index].empty()))
+			return false;
+		String copy = name;
+		if (index >= name_map.size())
+			name_map.resize(index + 1);
+		reverse_map.emplace(name, id);
+		name_map[index] = std::move(copy);
+		return true;
 	}
+
+	ID NextId() const { return static_cast<ID>(name_map.size()); }
 
 	bool AssertAllInserted(ID number_of_defined_ids) const
 	{
@@ -52,24 +57,6 @@ public:
 		return name_map[static_cast<size_t>(ID::Invalid)];
 	}
 
-	ID GetOrCreateId(const String& name)
-	{
-		// All predefined properties must be set before possibly adding custom properties here
-		RMLUI_ASSERT(name_map.size() == reverse_map.size());
-
-		ID next_id = static_cast<ID>(name_map.size());
-
-		// Only insert if not already in list
-		auto pair = reverse_map.emplace(name, next_id);
-		const auto& it = pair.first;
-		bool inserted = pair.second;
-
-		if (inserted)
-			name_map.push_back(name);
-
-		// Return the property id that already existed, or the new one if inserted
-		return it->second;
-	}
 };
 
 class PropertyIdNameMap : public IdNameMap<PropertyId> {

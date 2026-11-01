@@ -2,16 +2,28 @@
 
 #include "../../Include/RmlUi/Core/Traits.h"
 #include "../../Include/RmlUi/Core/Types.h"
+#include <cstdlib>
+#include <limits>
+#include <new>
 
 namespace Rml {
 
 namespace Detail {
 
+	[[noreturn]] inline void AllocationFailure()
+	{
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+		throw std::bad_alloc();
+#else
+		std::abort();
+#endif
+	}
+
 	/**
 	    Basic stack allocator.
 
 	    A very cheap allocator which only moves a pointer up and down during allocation and deallocation, respectively.
-	    The allocator is initialized with some fixed memory. If it runs out, it falls back to malloc.
+	    The allocator is initialized with some fixed memory. If it runs out, it falls back to the heap.
 
 	    Warning: Using this is dangerous as deallocation must happen in exact reverse order of allocation.
 
@@ -40,7 +52,7 @@ namespace Detail {
 
     Can very cheaply allocate memory using the global stack allocator. Memory will be allocated from the
     heap on the very first construction of a global stack allocator, and will persist and be re-used after.
-    Falls back to malloc if there is not enough space left.
+    Falls back to the heap if there is not enough space left.
 
     Warning: Using this is dangerous as deallocation must happen in exact reverse order of allocation.
       Memory is shared between different global stack allocators. Should only be used for highly localized code,
@@ -57,7 +69,12 @@ public:
 	constexpr GlobalStackAllocator(const GlobalStackAllocator<U>&) noexcept
 	{}
 
-	T* allocate(size_t num_objects) { return static_cast<T*>(Detail::GetGlobalBasicStackAllocator().allocate(alignof(T), num_objects * sizeof(T))); }
+	T* allocate(size_t num_objects)
+	{
+		if (num_objects > std::numeric_limits<size_t>::max() / sizeof(T))
+			Detail::AllocationFailure();
+		return static_cast<T*>(Detail::GetGlobalBasicStackAllocator().allocate(alignof(T), num_objects * sizeof(T)));
+	}
 
 	void deallocate(T* ptr, size_t) noexcept { Detail::GetGlobalBasicStackAllocator().deallocate(ptr); }
 };

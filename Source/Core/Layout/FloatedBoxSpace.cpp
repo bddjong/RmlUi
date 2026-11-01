@@ -127,7 +127,7 @@ Vector2f FloatedBoxSpace::NextBoxPosition(const BlockContainer* parent, float& m
 
 	// Second; we go through all of the boxes on the other edge, checking for horizontal collisions and determining the
 	// maximum width the box can stretch to, if it is placed at this location.
-	maximum_box_width = (box_edge == LEFT ? parent_edge_right - box_position.x : box_position.x + dimensions.x);
+	maximum_box_width = (box_edge == LEFT ? parent_edge_right - box_position.x : box_position.x + dimensions.x - parent_edge_left);
 
 	for (const FloatedBox& fixed_box : boxes[1 - box_edge])
 	{

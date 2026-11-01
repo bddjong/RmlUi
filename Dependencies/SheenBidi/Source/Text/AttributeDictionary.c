@@ -126,14 +126,18 @@ SB_INTERNAL void AttributeDictionarySet(AttributeDictionaryRef dictionary,
 {
     SBUInteger itemCount = SBAttributeListSize(&other->_list);
     SBUInteger itemIndex;
+    AttributeDictionary replacement;
 
-    AttributeDictionaryClear(dictionary, registry);
-    SBAttributeListReserveRange(&dictionary->_list, 0, itemCount);
+    ListInitialize(&replacement._list._list, dictionary->_list._list.itemSize);
+    if (itemCount && !SBAttributeListReserveRange(&replacement._list, 0, itemCount)) {
+        AttributeDictionaryFinalize(&replacement, NULL);
+        return;
+    }
 
     /* Copy each attribute item, retaining values through the registry */
     for (itemIndex = 0; itemIndex < itemCount; itemIndex++) {
         const SBAttributeItem *source = SBAttributeListGetAt(&other->_list, itemIndex);
-        SBAttributeItem *destination = SBAttributeListGetAt(&dictionary->_list, itemIndex);
+        SBAttributeItem *destination = SBAttributeListGetAt(&replacement._list, itemIndex);
         const void *oldValue;
         const void *newValue;
 
@@ -142,6 +146,9 @@ SB_INTERNAL void AttributeDictionarySet(AttributeDictionaryRef dictionary,
 
         SBAttributeItemSet(destination, source->attributeID, newValue);
     }
+
+    AttributeDictionaryFinalize(dictionary, registry);
+    *dictionary = replacement;
 }
 
 SB_INTERNAL void AttributeDictionaryPut(AttributeDictionaryRef dictionary,
@@ -185,7 +192,15 @@ SB_INTERNAL void AttributeDictionaryPut(AttributeDictionaryRef dictionary,
         SBAttributeItem *newItem;
 
         /* Insert the new item at the correct position to maintain sorted order */
-        SBAttributeListReserveRange(&dictionary->_list, itemIndex, 1);
+        if (!SBAttributeListReserveRange(&dictionary->_list, itemIndex, 1)) {
+            if (registry) {
+                SBAttributeRegistryReleaseAttribute(registry, newValue);
+            }
+            if (unchanged) {
+                *unchanged = SBTrue;
+            }
+            return;
+        }
 
         newItem = SBAttributeListGetAt(&dictionary->_list, itemIndex);
         SBAttributeItemSet(newItem, attributeID, newValue);
@@ -229,9 +244,14 @@ SB_INTERNAL void AttributeDictionaryFilter(AttributeDictionaryRef dictionary,
 {
     SBUInteger itemCount = SBAttributeListSize(&dictionary->_list);
     SBUInteger itemIndex;
+    AttributeDictionary replacement;
 
-    /* Clear the result dictionary before populating it */
-    AttributeDictionaryClear(result, NULL);
+    ListInitialize(&replacement._list._list, result->_list._list.itemSize);
+    if (itemCount && !SBAttributeListReserveRange(&replacement._list, 0, itemCount)) {
+        AttributeDictionaryFinalize(&replacement, NULL);
+        return;
+    }
+    SBAttributeListRemoveAll(&replacement._list);
 
     /* Iterate through all items in the dictionary */
     for (itemIndex = 0; itemIndex < itemCount; itemIndex++) {
@@ -246,12 +266,14 @@ SB_INTERNAL void AttributeDictionaryFilter(AttributeDictionaryRef dictionary,
             SBAttributeItem *newItem;
 
             /* Add matching item to the result dictionary */
-            SBAttributeListReserveEnd(&result->_list, 1);
-            newItem = SBAttributeListGetLast(&result->_list);
+            SBAttributeListReserveEnd(&replacement._list, 1);
+            newItem = SBAttributeListGetLast(&replacement._list);
 
             SBAttributeItemSet(newItem, currentItem->attributeID, valuePtr);
         }
     }
+    AttributeDictionaryFinalize(result, NULL);
+    *result = replacement;
 }
 
 SB_INTERNAL const void *AttributeDictionaryFindValue(

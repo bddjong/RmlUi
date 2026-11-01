@@ -1,24 +1,42 @@
 #include "../../Include/RmlUi/Core/Variant.h"
 #include "../../Include/RmlUi/Core/DecorationTypes.h"
-#include <string.h>
+#include <new>
 
 namespace Rml {
 
 Variant::Variant()
 {
-	// Make sure our object size assumptions fit inside the static buffer
-	static_assert(sizeof(Colourb) <= LOCAL_DATA_SIZE, "Local data too small for Colourb");
-	static_assert(sizeof(Colourf) <= LOCAL_DATA_SIZE, "Local data too small for Colourf");
-	static_assert(sizeof(Vector4f) <= LOCAL_DATA_SIZE, "Local data too small for Vector4f");
-	static_assert(sizeof(String) <= LOCAL_DATA_SIZE, "Local data too small for String");
-	static_assert(sizeof(TransformPtr) <= LOCAL_DATA_SIZE, "Local data too small for TransformPtr");
-	static_assert(sizeof(TransitionList) <= LOCAL_DATA_SIZE, "Local data too small for TransitionList");
-	static_assert(sizeof(AnimationList) <= LOCAL_DATA_SIZE, "Local data too small for AnimationList");
-	static_assert(sizeof(DecoratorsPtr) <= LOCAL_DATA_SIZE, "Local data too small for DecoratorsPtr");
-	static_assert(sizeof(FiltersPtr) <= LOCAL_DATA_SIZE, "Local data too small for FiltersPtr");
-	static_assert(sizeof(FontEffectsPtr) <= LOCAL_DATA_SIZE, "Local data too small for FontEffectsPtr");
-	static_assert(sizeof(ColorStopList) <= LOCAL_DATA_SIZE, "Local data too small for ColorStopList");
-	static_assert(sizeof(BoxShadowList) <= LOCAL_DATA_SIZE, "Local data too small for BoxShadowList");
+	// Reject unsupported custom types at compile time.
+#define CHECK_VARIANT_STORAGE(T) \
+	static_assert(sizeof(T) <= LOCAL_DATA_SIZE && alignof(Variant) % alignof(T) == 0, "Variant storage cannot hold " #T); \
+	static_assert(std::is_nothrow_move_constructible_v<T> && std::is_nothrow_move_assignable_v<T> && \
+		std::is_nothrow_destructible_v<T>, "Variant requires noexcept move and destruction for " #T)
+	CHECK_VARIANT_STORAGE(bool);
+	CHECK_VARIANT_STORAGE(byte);
+	CHECK_VARIANT_STORAGE(char);
+	CHECK_VARIANT_STORAGE(float);
+	CHECK_VARIANT_STORAGE(double);
+	CHECK_VARIANT_STORAGE(int);
+	CHECK_VARIANT_STORAGE(int64_t);
+	CHECK_VARIANT_STORAGE(unsigned int);
+	CHECK_VARIANT_STORAGE(uint64_t);
+	CHECK_VARIANT_STORAGE(String);
+	CHECK_VARIANT_STORAGE(Vector2f);
+	CHECK_VARIANT_STORAGE(Vector3f);
+	CHECK_VARIANT_STORAGE(Vector4f);
+	CHECK_VARIANT_STORAGE(Colourf);
+	CHECK_VARIANT_STORAGE(Colourb);
+	CHECK_VARIANT_STORAGE(ScriptInterface*);
+	CHECK_VARIANT_STORAGE(void*);
+	CHECK_VARIANT_STORAGE(TransformPtr);
+	CHECK_VARIANT_STORAGE(TransitionList);
+	CHECK_VARIANT_STORAGE(AnimationList);
+	CHECK_VARIANT_STORAGE(DecoratorsPtr);
+	CHECK_VARIANT_STORAGE(FiltersPtr);
+	CHECK_VARIANT_STORAGE(FontEffectsPtr);
+	CHECK_VARIANT_STORAGE(ColorStopList);
+	CHECK_VARIANT_STORAGE(BoxShadowList);
+#undef CHECK_VARIANT_STORAGE
 }
 
 Variant::Variant(const Variant& copy)
@@ -44,58 +62,58 @@ void Variant::Clear()
 	case STRING:
 	{
 		// Clean up the string.
-		String* string = (String*)data;
+		String* string = std::launder(reinterpret_cast<String*>(data));
 		string->~String();
 	}
 	break;
 	case TRANSFORMPTR:
 	{
 		// Clean up the transform.
-		TransformPtr* transform = (TransformPtr*)data;
+		TransformPtr* transform = std::launder(reinterpret_cast<TransformPtr*>(data));
 		transform->~TransformPtr();
 	}
 	break;
 	case TRANSITIONLIST:
 	{
 		// Clean up the transition list.
-		TransitionList* transition_list = (TransitionList*)data;
+		TransitionList* transition_list = std::launder(reinterpret_cast<TransitionList*>(data));
 		transition_list->~TransitionList();
 	}
 	break;
 	case ANIMATIONLIST:
 	{
 		// Clean up the transition list.
-		AnimationList* animation_list = (AnimationList*)data;
+		AnimationList* animation_list = std::launder(reinterpret_cast<AnimationList*>(data));
 		animation_list->~AnimationList();
 	}
 	break;
 	case DECORATORSPTR:
 	{
-		DecoratorsPtr* decorators = (DecoratorsPtr*)data;
+		DecoratorsPtr* decorators = std::launder(reinterpret_cast<DecoratorsPtr*>(data));
 		decorators->~DecoratorsPtr();
 	}
 	break;
 	case FILTERSPTR:
 	{
-		FiltersPtr* decorators = (FiltersPtr*)data;
+		FiltersPtr* decorators = std::launder(reinterpret_cast<FiltersPtr*>(data));
 		decorators->~FiltersPtr();
 	}
 	break;
 	case FONTEFFECTSPTR:
 	{
-		FontEffectsPtr* font_effects = (FontEffectsPtr*)data;
-		font_effects->~shared_ptr();
+		FontEffectsPtr* font_effects = std::launder(reinterpret_cast<FontEffectsPtr*>(data));
+		font_effects->~FontEffectsPtr();
 	}
 	break;
 	case COLORSTOPLIST:
 	{
-		ColorStopList* value = (ColorStopList*)data;
+		ColorStopList* value = std::launder(reinterpret_cast<ColorStopList*>(data));
 		value->~ColorStopList();
 	}
 	break;
 	case BOXSHADOWLIST:
 	{
-		BoxShadowList* value = (BoxShadowList*)data;
+		BoxShadowList* value = std::launder(reinterpret_cast<BoxShadowList*>(data));
 		value->~BoxShadowList();
 	}
 	break;
@@ -104,25 +122,41 @@ void Variant::Clear()
 	type = NONE;
 }
 
-#define SET_VARIANT(type) *((type*)data) = value;
+#define SET_VARIANT(T) *std::launder(reinterpret_cast<T*>(data)) = value;
+#define SET_SCALAR(T, tag) \
+	if (type == tag) SET_VARIANT(T) \
+	else { new (data) T(value); type = tag; }
 
 void Variant::Set(const Variant& copy)
 {
 	switch (copy.type)
 	{
-	case STRING: Set(*reinterpret_cast<const String*>(copy.data)); break;
-	case TRANSFORMPTR: Set(*reinterpret_cast<const TransformPtr*>(copy.data)); break;
-	case TRANSITIONLIST: Set(*reinterpret_cast<const TransitionList*>(copy.data)); break;
-	case ANIMATIONLIST: Set(*reinterpret_cast<const AnimationList*>(copy.data)); break;
-	case DECORATORSPTR: Set(*reinterpret_cast<const DecoratorsPtr*>(copy.data)); break;
-	case FILTERSPTR: Set(*reinterpret_cast<const FiltersPtr*>(copy.data)); break;
-	case FONTEFFECTSPTR: Set(*reinterpret_cast<const FontEffectsPtr*>(copy.data)); break;
-	case COLORSTOPLIST: Set(*reinterpret_cast<const ColorStopList*>(copy.data)); break;
-	case BOXSHADOWLIST: Set(*reinterpret_cast<const BoxShadowList*>(copy.data)); break;
-	default:
-		memcpy(data, copy.data, LOCAL_DATA_SIZE);
-		type = copy.type;
-		break;
+	case STRING: Set(*std::launder(reinterpret_cast<const String*>(copy.data))); break;
+	case TRANSFORMPTR: Set(*std::launder(reinterpret_cast<const TransformPtr*>(copy.data))); break;
+	case TRANSITIONLIST: Set(*std::launder(reinterpret_cast<const TransitionList*>(copy.data))); break;
+	case ANIMATIONLIST: Set(*std::launder(reinterpret_cast<const AnimationList*>(copy.data))); break;
+	case DECORATORSPTR: Set(*std::launder(reinterpret_cast<const DecoratorsPtr*>(copy.data))); break;
+	case FILTERSPTR: Set(*std::launder(reinterpret_cast<const FiltersPtr*>(copy.data))); break;
+	case FONTEFFECTSPTR: Set(*std::launder(reinterpret_cast<const FontEffectsPtr*>(copy.data))); break;
+	case COLORSTOPLIST: Set(*std::launder(reinterpret_cast<const ColorStopList*>(copy.data))); break;
+	case BOXSHADOWLIST: Set(*std::launder(reinterpret_cast<const BoxShadowList*>(copy.data))); break;
+	case BOOL: Set(*std::launder(reinterpret_cast<bool const*>(copy.data))); break;
+	case BYTE: Set(*std::launder(reinterpret_cast<byte const*>(copy.data))); break;
+	case CHAR: Set(*std::launder(reinterpret_cast<char const*>(copy.data))); break;
+	case FLOAT: Set(*std::launder(reinterpret_cast<float const*>(copy.data))); break;
+	case DOUBLE: Set(*std::launder(reinterpret_cast<double const*>(copy.data))); break;
+	case INT: Set(*std::launder(reinterpret_cast<int const*>(copy.data))); break;
+	case INT64: Set(*std::launder(reinterpret_cast<int64_t const*>(copy.data))); break;
+	case UINT: Set(*std::launder(reinterpret_cast<unsigned int const*>(copy.data))); break;
+	case UINT64: Set(*std::launder(reinterpret_cast<uint64_t const*>(copy.data))); break;
+	case VECTOR2: Set(*std::launder(reinterpret_cast<Vector2f const*>(copy.data))); break;
+	case VECTOR3: Set(*std::launder(reinterpret_cast<Vector3f const*>(copy.data))); break;
+	case VECTOR4: Set(*std::launder(reinterpret_cast<Vector4f const*>(copy.data))); break;
+	case COLOURF: Set(*std::launder(reinterpret_cast<Colourf const*>(copy.data))); break;
+	case COLOURB: Set(*std::launder(reinterpret_cast<Colourb const*>(copy.data))); break;
+	case SCRIPTINTERFACE: Set(*std::launder(reinterpret_cast<ScriptInterface* const*>(copy.data))); break;
+	case VOIDPTR: Set(*std::launder(reinterpret_cast<void* const*>(copy.data))); break;
+	case NONE: break;
 	}
 	RMLUI_ASSERT(type == copy.type);
 }
@@ -131,75 +165,79 @@ void Variant::Set(Variant&& other)
 {
 	switch (other.type)
 	{
-	case STRING: Set(std::move(*reinterpret_cast<String*>(other.data))); break;
-	case TRANSFORMPTR: Set(std::move(*reinterpret_cast<TransformPtr*>(other.data))); break;
-	case TRANSITIONLIST: Set(std::move(*reinterpret_cast<TransitionList*>(other.data))); break;
-	case ANIMATIONLIST: Set(std::move(*reinterpret_cast<AnimationList*>(other.data))); break;
-	case DECORATORSPTR: Set(std::move(*reinterpret_cast<DecoratorsPtr*>(other.data))); break;
-	case FILTERSPTR: Set(std::move(*reinterpret_cast<FiltersPtr*>(other.data))); break;
-	case FONTEFFECTSPTR: Set(std::move(*reinterpret_cast<FontEffectsPtr*>(other.data))); break;
-	case COLORSTOPLIST: Set(std::move(*reinterpret_cast<ColorStopList*>(other.data))); break;
-	case BOXSHADOWLIST: Set(std::move(*reinterpret_cast<BoxShadowList*>(other.data))); break;
-	default:
-		memcpy(data, other.data, LOCAL_DATA_SIZE);
-		type = other.type;
-		break;
+	case STRING: Set(std::move(*std::launder(reinterpret_cast<String*>(other.data)))); break;
+	case TRANSFORMPTR: Set(std::move(*std::launder(reinterpret_cast<TransformPtr*>(other.data)))); break;
+	case TRANSITIONLIST: Set(std::move(*std::launder(reinterpret_cast<TransitionList*>(other.data)))); break;
+	case ANIMATIONLIST: Set(std::move(*std::launder(reinterpret_cast<AnimationList*>(other.data)))); break;
+	case DECORATORSPTR: Set(std::move(*std::launder(reinterpret_cast<DecoratorsPtr*>(other.data)))); break;
+	case FILTERSPTR: Set(std::move(*std::launder(reinterpret_cast<FiltersPtr*>(other.data)))); break;
+	case FONTEFFECTSPTR: Set(std::move(*std::launder(reinterpret_cast<FontEffectsPtr*>(other.data)))); break;
+	case COLORSTOPLIST: Set(std::move(*std::launder(reinterpret_cast<ColorStopList*>(other.data)))); break;
+	case BOXSHADOWLIST: Set(std::move(*std::launder(reinterpret_cast<BoxShadowList*>(other.data)))); break;
+	case BOOL: Set(*std::launder(reinterpret_cast<bool const*>(other.data))); break;
+	case BYTE: Set(*std::launder(reinterpret_cast<byte const*>(other.data))); break;
+	case CHAR: Set(*std::launder(reinterpret_cast<char const*>(other.data))); break;
+	case FLOAT: Set(*std::launder(reinterpret_cast<float const*>(other.data))); break;
+	case DOUBLE: Set(*std::launder(reinterpret_cast<double const*>(other.data))); break;
+	case INT: Set(*std::launder(reinterpret_cast<int const*>(other.data))); break;
+	case INT64: Set(*std::launder(reinterpret_cast<int64_t const*>(other.data))); break;
+	case UINT: Set(*std::launder(reinterpret_cast<unsigned int const*>(other.data))); break;
+	case UINT64: Set(*std::launder(reinterpret_cast<uint64_t const*>(other.data))); break;
+	case VECTOR2: Set(*std::launder(reinterpret_cast<Vector2f const*>(other.data))); break;
+	case VECTOR3: Set(*std::launder(reinterpret_cast<Vector3f const*>(other.data))); break;
+	case VECTOR4: Set(*std::launder(reinterpret_cast<Vector4f const*>(other.data))); break;
+	case COLOURF: Set(*std::launder(reinterpret_cast<Colourf const*>(other.data))); break;
+	case COLOURB: Set(*std::launder(reinterpret_cast<Colourb const*>(other.data))); break;
+	case SCRIPTINTERFACE: Set(*std::launder(reinterpret_cast<ScriptInterface* const*>(other.data))); break;
+	case VOIDPTR: Set(*std::launder(reinterpret_cast<void* const*>(other.data))); break;
+	case NONE: break;
 	}
 	RMLUI_ASSERT(type == other.type);
 }
 
 void Variant::Set(const bool value)
 {
-	type = BOOL;
-	SET_VARIANT(bool);
+	SET_SCALAR(bool, BOOL);
 }
 
 void Variant::Set(const byte value)
 {
-	type = BYTE;
-	SET_VARIANT(byte);
+	SET_SCALAR(byte, BYTE);
 }
 
 void Variant::Set(const char value)
 {
-	type = CHAR;
-	SET_VARIANT(char);
+	SET_SCALAR(char, CHAR);
 }
 
 void Variant::Set(const float value)
 {
-	type = FLOAT;
-	SET_VARIANT(float);
+	SET_SCALAR(float, FLOAT);
 }
 
 void Variant::Set(const double value)
 {
-	type = DOUBLE;
-	SET_VARIANT(double);
+	SET_SCALAR(double, DOUBLE);
 }
 
 void Variant::Set(const int value)
 {
-	type = INT;
-	SET_VARIANT(int);
+	SET_SCALAR(int, INT);
 }
 
 void Variant::Set(const int64_t value)
 {
-	type = INT64;
-	SET_VARIANT(int64_t);
+	SET_SCALAR(int64_t, INT64);
 }
 
 void Variant::Set(const unsigned int value)
 {
-	type = UINT;
-	SET_VARIANT(unsigned int);
+	SET_SCALAR(unsigned int, UINT);
 }
 
 void Variant::Set(const uint64_t value)
 {
-	type = UINT64;
-	SET_VARIANT(uint64_t);
+	SET_SCALAR(uint64_t, UINT64);
 }
 
 void Variant::Set(const char* value)
@@ -207,70 +245,65 @@ void Variant::Set(const char* value)
 	Set(String(value));
 }
 
-void Variant::Set(void* voidptr)
+void Variant::Set(void* value)
 {
-	type = VOIDPTR;
-	memcpy(data, &voidptr, sizeof(void*));
+	using Pointer = void*;
+	SET_SCALAR(Pointer, VOIDPTR);
 }
 
 void Variant::Set(const Vector2f value)
 {
-	type = VECTOR2;
-	SET_VARIANT(Vector2f);
+	SET_SCALAR(Vector2f, VECTOR2);
 }
 
 void Variant::Set(const Vector3f value)
 {
-	type = VECTOR3;
-	SET_VARIANT(Vector3f);
+	SET_SCALAR(Vector3f, VECTOR3);
 }
 
 void Variant::Set(const Vector4f value)
 {
-	type = VECTOR4;
-	SET_VARIANT(Vector4f);
+	SET_SCALAR(Vector4f, VECTOR4);
 }
 
 void Variant::Set(const Colourf value)
 {
-	type = COLOURF;
-	SET_VARIANT(Colourf);
+	SET_SCALAR(Colourf, COLOURF);
 }
 
 void Variant::Set(const Colourb value)
 {
-	type = COLOURB;
-	SET_VARIANT(Colourb);
+	SET_SCALAR(Colourb, COLOURB);
 }
 
 void Variant::Set(ScriptInterface* value)
 {
-	type = SCRIPTINTERFACE;
-	memcpy(data, &value, sizeof(ScriptInterface*));
+	using Pointer = ScriptInterface*;
+	SET_SCALAR(Pointer, SCRIPTINTERFACE);
 }
 
 void Variant::Set(const String& value)
 {
 	if (type == STRING)
 	{
-		(*(String*)data) = value;
+		(*std::launder(reinterpret_cast<String*>(data))) = value;
 	}
 	else
 	{
-		type = STRING;
 		new (data) String(value);
+		type = STRING;
 	}
 }
 void Variant::Set(String&& value)
 {
 	if (type == STRING)
 	{
-		(*(String*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<String*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = STRING;
 		new (data) String(std::move(value));
+		type = STRING;
 	}
 }
 
@@ -282,20 +315,20 @@ void Variant::Set(const TransformPtr& value)
 	}
 	else
 	{
-		type = TRANSFORMPTR;
 		new (data) TransformPtr(value);
+		type = TRANSFORMPTR;
 	}
 }
 void Variant::Set(TransformPtr&& value)
 {
 	if (type == TRANSFORMPTR)
 	{
-		(*(TransformPtr*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<TransformPtr*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = TRANSFORMPTR;
 		new (data) TransformPtr(std::move(value));
+		type = TRANSFORMPTR;
 	}
 }
 
@@ -303,24 +336,24 @@ void Variant::Set(const TransitionList& value)
 {
 	if (type == TRANSITIONLIST)
 	{
-		*(TransitionList*)data = value;
+		*std::launder(reinterpret_cast<TransitionList*>(data)) = value;
 	}
 	else
 	{
-		type = TRANSITIONLIST;
 		new (data) TransitionList(value);
+		type = TRANSITIONLIST;
 	}
 }
 void Variant::Set(TransitionList&& value)
 {
 	if (type == TRANSITIONLIST)
 	{
-		(*(TransitionList*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<TransitionList*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = TRANSITIONLIST;
 		new (data) TransitionList(std::move(value));
+		type = TRANSITIONLIST;
 	}
 }
 
@@ -328,24 +361,24 @@ void Variant::Set(const AnimationList& value)
 {
 	if (type == ANIMATIONLIST)
 	{
-		*(AnimationList*)data = value;
+		*std::launder(reinterpret_cast<AnimationList*>(data)) = value;
 	}
 	else
 	{
-		type = ANIMATIONLIST;
 		new (data) AnimationList(value);
+		type = ANIMATIONLIST;
 	}
 }
 void Variant::Set(AnimationList&& value)
 {
 	if (type == ANIMATIONLIST)
 	{
-		(*(AnimationList*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<AnimationList*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = ANIMATIONLIST;
 		new (data) AnimationList(std::move(value));
+		type = ANIMATIONLIST;
 	}
 }
 
@@ -353,120 +386,120 @@ void Variant::Set(const DecoratorsPtr& value)
 {
 	if (type == DECORATORSPTR)
 	{
-		*(DecoratorsPtr*)data = value;
+		*std::launder(reinterpret_cast<DecoratorsPtr*>(data)) = value;
 	}
 	else
 	{
-		type = DECORATORSPTR;
 		new (data) DecoratorsPtr(value);
+		type = DECORATORSPTR;
 	}
 }
 void Variant::Set(DecoratorsPtr&& value)
 {
 	if (type == DECORATORSPTR)
 	{
-		(*(DecoratorsPtr*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<DecoratorsPtr*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = DECORATORSPTR;
 		new (data) DecoratorsPtr(std::move(value));
+		type = DECORATORSPTR;
 	}
 }
 void Variant::Set(const FiltersPtr& value)
 {
 	if (type == FILTERSPTR)
 	{
-		*(FiltersPtr*)data = value;
+		*std::launder(reinterpret_cast<FiltersPtr*>(data)) = value;
 	}
 	else
 	{
-		type = FILTERSPTR;
 		new (data) FiltersPtr(value);
+		type = FILTERSPTR;
 	}
 }
 void Variant::Set(FiltersPtr&& value)
 {
 	if (type == FILTERSPTR)
 	{
-		(*(FiltersPtr*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<FiltersPtr*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = FILTERSPTR;
 		new (data) FiltersPtr(std::move(value));
+		type = FILTERSPTR;
 	}
 }
 void Variant::Set(const FontEffectsPtr& value)
 {
 	if (type == FONTEFFECTSPTR)
 	{
-		*(FontEffectsPtr*)data = value;
+		*std::launder(reinterpret_cast<FontEffectsPtr*>(data)) = value;
 	}
 	else
 	{
-		type = FONTEFFECTSPTR;
 		new (data) FontEffectsPtr(value);
+		type = FONTEFFECTSPTR;
 	}
 }
 void Variant::Set(FontEffectsPtr&& value)
 {
 	if (type == FONTEFFECTSPTR)
 	{
-		(*(FontEffectsPtr*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<FontEffectsPtr*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = FONTEFFECTSPTR;
 		new (data) FontEffectsPtr(std::move(value));
+		type = FONTEFFECTSPTR;
 	}
 }
 void Variant::Set(const ColorStopList& value)
 {
 	if (type == COLORSTOPLIST)
 	{
-		*(ColorStopList*)data = value;
+		*std::launder(reinterpret_cast<ColorStopList*>(data)) = value;
 	}
 	else
 	{
-		type = COLORSTOPLIST;
 		new (data) ColorStopList(value);
+		type = COLORSTOPLIST;
 	}
 }
 void Variant::Set(ColorStopList&& value)
 {
 	if (type == COLORSTOPLIST)
 	{
-		(*(ColorStopList*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<ColorStopList*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = COLORSTOPLIST;
 		new (data) ColorStopList(std::move(value));
+		type = COLORSTOPLIST;
 	}
 }
 void Variant::Set(const BoxShadowList& value)
 {
 	if (type == BOXSHADOWLIST)
 	{
-		*(BoxShadowList*)data = value;
+		*std::launder(reinterpret_cast<BoxShadowList*>(data)) = value;
 	}
 	else
 	{
-		type = BOXSHADOWLIST;
 		new (data) BoxShadowList(value);
+		type = BOXSHADOWLIST;
 	}
 }
 void Variant::Set(BoxShadowList&& value)
 {
 	if (type == BOXSHADOWLIST)
 	{
-		(*(BoxShadowList*)data) = std::move(value);
+		(*std::launder(reinterpret_cast<BoxShadowList*>(data))) = std::move(value);
 	}
 	else
 	{
-		type = BOXSHADOWLIST;
 		new (data) BoxShadowList(std::move(value));
+		type = BOXSHADOWLIST;
 	}
 }
 
@@ -490,7 +523,7 @@ Variant& Variant::operator=(Variant&& other) noexcept
 	return *this;
 }
 
-#define DEFAULT_VARIANT_COMPARE(TYPE) static_cast<TYPE>(*(TYPE*)data) == static_cast<TYPE>(*(TYPE*)other.data)
+#define DEFAULT_VARIANT_COMPARE(TYPE) (GetReference<TYPE>() == other.GetReference<TYPE>())
 
 bool Variant::operator==(const Variant& other) const
 {

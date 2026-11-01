@@ -238,7 +238,7 @@ void TableGrid::PushRow(Element* element_row, ElementList cell_elements, TableWr
 			continue_offset_column = false;
 			for (int k = 0; k < num_cells_spanning_this_row; k++)
 			{
-				if (column >= open_cells[k].column_begin && column <= open_cells[k].column_last)
+				if (column <= open_cells[k].column_last && col_span - 1 >= open_cells[k].column_begin - column)
 				{
 					column = open_cells[k].column_last + 1;
 					continue_offset_column = true;
@@ -484,7 +484,7 @@ void TracksSizing::ResolveFlexibleSize()
 		RMLUI_ASSERT(metric.sizing_mode == TrackSizingMode::Fixed || metric.sizing_mode == TrackSizingMode::Flexible);
 
 		sum_fixed_spacing += metric.column_padding_border_a + metric.column_padding_border_b;
-		sum_fixed_spacing += metric.group_padding_border_a + metric.group_padding_border_a;
+		sum_fixed_spacing += metric.group_padding_border_a + metric.group_padding_border_b;
 		sum_fixed_spacing += metric.sum_margin_a + metric.sum_margin_b;
 	}
 

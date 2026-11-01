@@ -236,6 +236,8 @@ bool ElementImage::LoadTexture()
 	}
 	else
 	{
+		rect_source = RectSource::None;
+		UpdateRect();
 		// Load image from source URL.
 		const String source_name = GetAttribute<String>("src", "");
 		if (source_name.empty())
@@ -290,6 +292,7 @@ void ElementImage::UpdateRect()
 
 		if (!valid_rect)
 		{
+			geometry_dirty = true;
 			rect = {};
 			rect_source = RectSource::None;
 		}

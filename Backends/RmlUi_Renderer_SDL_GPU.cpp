@@ -287,6 +287,8 @@ CompiledGeometryHandle RenderInterface_SDL_GPU::CompileGeometry(Span<const Verte
 	if (!vertex_data || !index_data)
 	{
 		Log::Message(Log::LT_ERROR, "Failed to map transfer buffer(s): %s", SDL_GetError());
+		if (vertex_data) SDL_UnmapGPUTransferBuffer(device, geometry->vertex_buffer->transfer_buffer);
+		if (index_data) SDL_UnmapGPUTransferBuffer(device, geometry->index_buffer->transfer_buffer);
 		delete geometry;
 		return 0;
 	}
@@ -485,6 +487,7 @@ TextureHandle RenderInterface_SDL_GPU::GenerateTexture(Span<const byte> source, 
 	if (!dst)
 	{
 		SDL_Log("Failed to map transfer buffer: %s", SDL_GetError());
+		SDL_ReleaseGPUTransferBuffer(device, transfer_buffer);
 		return 0;
 	}
 
@@ -505,6 +508,7 @@ TextureHandle RenderInterface_SDL_GPU::GenerateTexture(Span<const byte> source, 
 		if (!texture)
 		{
 			Log::Message(Log::LT_ERROR, "Failed to create texture: %s", SDL_GetError());
+			SDL_ReleaseGPUTransferBuffer(device, transfer_buffer);
 			return 0;
 		}
 	}

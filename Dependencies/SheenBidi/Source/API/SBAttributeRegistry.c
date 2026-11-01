@@ -187,8 +187,10 @@ SBBoolean SBAttributeRegistryGetAttributeInfo(SBAttributeRegistryRef registry,
     if (SBAttributeIDIsValid(attributeID)) {
         SBUInteger index = SBAttributeIDGetIndex(attributeID);
 
-        *attributeInfo = registry->attributeInfos[index];
-        idExists = SBTrue;
+        if (index < registry->count && SBAttributeIDGetSize(attributeID) == registry->valueSize) {
+            *attributeInfo = registry->attributeInfos[index];
+            idExists = SBTrue;
+        }
     }
 
     return idExists;

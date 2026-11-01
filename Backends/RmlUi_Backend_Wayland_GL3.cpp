@@ -689,11 +689,12 @@ void Backend::RequestExit()
 	data->running = false;
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data && data->render_interface);
 	data->render_interface->Clear();
 	data->render_interface->BeginFrame();
+	return true;
 }
 
 void Backend::PresentFrame()

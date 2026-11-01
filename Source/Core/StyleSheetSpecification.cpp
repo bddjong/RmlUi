@@ -121,9 +121,13 @@ PropertyParser* StyleSheetSpecification::GetParser(const String& parser_name)
 PropertyDefinition& StyleSheetSpecification::RegisterProperty(const String& property_name, const String& default_value, bool inherited,
 	bool forces_layout)
 {
-	RMLUI_ASSERTMSG((size_t)instance->properties.property_map->GetId(property_name) < (size_t)PropertyId::FirstCustomId,
-		"Custom property name matches an internal property, please make a unique name for the given property.");
 	return instance->RegisterProperty(PropertyId::Invalid, property_name, default_value, inherited, forces_layout);
+}
+
+PropertyDefinition* StyleSheetSpecification::TryRegisterProperty(const String& property_name, const String& default_value, bool inherited,
+	bool forces_layout)
+{
+	return instance->properties.TryRegisterProperty(property_name, default_value, inherited, forces_layout);
 }
 
 const PropertyDefinition* StyleSheetSpecification::GetProperty(const String& property_name)
@@ -365,7 +369,7 @@ void StyleSheetSpecification::RegisterDefaultProperties()
 	RegisterProperty(PropertyId::WordBreak, "word-break", "normal", true, true).AddParser("keyword", "normal, break-all, break-word");
 
 	RegisterProperty(PropertyId::RowGap, "row-gap", "0px", false, true).AddParser("length_percent").SetRelativeTarget(RelativeTarget::ContainingBlockHeight);
-	RegisterProperty(PropertyId::ColumnGap, "column-gap", "0px", false, true).AddParser("length_percent").SetRelativeTarget(RelativeTarget::ContainingBlockHeight);
+	RegisterProperty(PropertyId::ColumnGap, "column-gap", "0px", false, true).AddParser("length_percent").SetRelativeTarget(RelativeTarget::ContainingBlockWidth);
 	RegisterShorthand(ShorthandId::Gap, "gap", "row-gap, column-gap", ShorthandType::Replicate);
 
 	RegisterProperty(PropertyId::Cursor, "cursor", "", true, false).AddParser("string");

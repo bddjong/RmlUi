@@ -106,7 +106,7 @@ namespace StringUtilities {
 	// Seek backward in a UTF-8 string, skipping continuation bytes.
 	inline const char* SeekBackwardUTF8(const char* p, const char* p_begin)
 	{
-		while ((p + 1) != p_begin && (*p & 0b1100'0000) == 0b1000'0000)
+		while (p != p_begin && (*p & 0b1100'0000) == 0b1000'0000)
 			--p;
 		return p;
 	}
@@ -172,30 +172,31 @@ public:
 	StringIteratorU8(const String& string, size_t offset);
 	StringIteratorU8(const String& string, size_t offset, size_t count);
 
-	// Seeks forward to the next UTF-8 character. Iterator must be valid.
+	// Seeks forward to the next UTF-8 character, or from before-begin to begin.
 	StringIteratorU8& operator++();
-	// Seeks back to the previous UTF-8 character. Iterator must be valid.
+	// Seeks back to the previous UTF-8 character, including from end.
 	StringIteratorU8& operator--();
 
 	// Returns the codepoint at the current position. The iterator must be dereferencable.
 	inline Character operator*() const { return StringUtilities::ToCharacter(p, view.end()); }
 
 	// Returns false when the iterator is located just outside the valid part of the string.
-	explicit inline operator bool() const { return (p != view.begin() - 1) && (p != view.end()); }
+	explicit inline operator bool() const { return !before_begin && p != view.end(); }
 
-	bool operator==(const StringIteratorU8& other) const { return p == other.p; }
+	bool operator==(const StringIteratorU8& other) const { return p == other.p && before_begin == other.before_begin; }
 	bool operator!=(const StringIteratorU8& other) const { return !(*this == other); }
 
-	// Return a pointer to the current position.
+	// Return a pointer to the current position, or begin when before-begin.
 	inline const char* get() const { return p; }
 
 	// Return offset from the beginning of string. Note: Can return negative if decremented.
-	std::ptrdiff_t offset() const { return p - view.begin(); }
+	std::ptrdiff_t offset() const { return before_begin ? -1 : (p == view.begin() ? 0 : p - view.begin()); }
 
 private:
 	StringView view;
 	// 'p' can be dereferenced if and only if inside [view.begin, view.end)
 	const char* p;
+	bool before_begin = false;
 
 	inline void SeekForward();
 	inline void SeekBack();

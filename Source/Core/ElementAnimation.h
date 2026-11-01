@@ -55,6 +55,7 @@ public:
 	bool IsComplete() const { return animation_complete; }
 	bool IsTransition() const { return origin == ElementAnimationOrigin::Transition; }
 	bool IsInitalized() const { return !keys.empty(); }
+	bool HasTargetKey() const { return keys.size() >= 2; }
 	float GetInterpolationFactor() const { return GetInterpolationFactorAndKeys(nullptr, nullptr); }
 	ElementAnimationOrigin GetOrigin() const { return origin; }
 };

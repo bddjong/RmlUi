@@ -82,8 +82,14 @@ private:
 	};
 
 	RenderInterfaceAdapter(RenderInterfaceCompatibility& legacy);
+	void ApplyClipState();
 
 	RenderInterfaceCompatibility& legacy;
+	bool scissor_enabled = false;
+	bool clip_mask_enabled = false;
+	bool clip_mask_bounded = false;
+	Rectanglei scissor_region = Rectanglei::FromSize(Vector2i(0));
+	Rectanglei clip_mask_region = Rectanglei::FromSize(Vector2i(0));
 
 	friend Rml::RenderInterfaceCompatibility::RenderInterfaceCompatibility();
 };

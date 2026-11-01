@@ -1,8 +1,15 @@
 #include "../Common/TestsShell.h"
 #include "../../../Source/Core/ElementDefinition.h"
+#include "../../../Source/Core/DecoratorTiledVertical.h"
+#include "../../../Source/Core/TextureLayout.h"
 #include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/Decorator.h>
+#include <RmlUi/Core/PropertyDefinition.h>
+#include <RmlUi/Core/Texture.h>
+#include <RmlUi/Core/URL.h>
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/Element.h>
+#include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Factory.h>
 #include <RmlUi/Core/ID.h>
 #include <RmlUi/Core/Spritesheet.h>
@@ -254,5 +261,180 @@ TEST_CASE("style_sheet_parser.selector_list_with_escaped_comma")
 		CHECK(normal_width->source->rule_name == "#normal_match");
 	}
 
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("stream_memory.borrowed_and_seek_end")
+{
+	const byte data[] = {1, 2, 3};
+	StreamMemory stream(data, sizeof(data));
+	CHECK_FALSE(stream.IsWriteReady());
+	CHECK(stream.Write(data, 1) == 0);
+	CHECK(stream.PushFront(data, 1) == 0);
+	stream.Erase(0, 1);
+	CHECK(stream.Length() == 3);
+	CHECK(stream.Seek(-1, SEEK_END));
+	CHECK(stream.Tell() == 2);
+	CHECK_FALSE(stream.Seek(1, SEEK_END));
+	CHECK(stream.Tell() == 2);
+}
+
+TEST_CASE("stream copy retains unwritten source position")
+{
+	class LimitedSink : public Stream {
+	public:
+		void Close() override {}
+		size_t Length() const override { return accepted; }
+		size_t Tell() const override { return accepted; }
+		bool Seek(long, int) const override { return false; }
+		size_t Read(void*, size_t) const override { return 0; }
+		size_t Write(const void*, size_t bytes) override
+		{
+			const size_t count = bytes < 2 - accepted ? bytes : 2 - accepted;
+			accepted += count;
+			return count;
+		}
+		size_t Truncate(size_t) override { return 0; }
+		bool IsReadReady() override { return false; }
+		bool IsWriteReady() override { return accepted < 2; }
+		size_t accepted = 0;
+	};
+	const byte data[] = {'a', 'b', 'c', 'd'};
+	StreamMemory source(data, sizeof(data));
+	LimitedSink sink;
+	CHECK(source.Read(&sink, sizeof(data)) == 2);
+	CHECK(source.Tell() == 2);
+	char remaining[2] = {};
+	CHECK(source.Read(remaining, sizeof(remaining)) == 2);
+	CHECK(remaining[0] == 'c');
+	CHECK(remaining[1] == 'd');
+}
+
+TEST_CASE("style_sheet_parser.newlines_separate_tokens")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+	<rml><head><style>
+	.parent
+	.child { display: block; width: 12px; height: 13px; }
+	</style></head><body><div class="parent"><div class="child"/></div></body></rml>)");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	ElementList elements;
+	document->GetElementsByTagName(elements, "div");
+	REQUIRE(elements.size() == 2);
+	CHECK(elements[1]->GetBox().GetSize() == Vector2f(12.f, 13.f));
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("style_sheet_parser.selector_whitespace")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory(
+		"<rml><head><style>"
+		".parent\t.tab { display: block; width: 11px; height: 12px; }"
+		".parent\r.cr { display: block; width: 13px; height: 14px; }"
+		".parent\t>\t.direct { display: block; width: 17px; height: 18px; }"
+		"</style></head><body><div class='parent'>"
+		"<div id='tab' class='tab'/><div id='cr' class='cr'/>"
+		"<div id='direct' class='direct'/></div>"
+		"<div id='outside' class='tab'/></body></rml>");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	Element* tab = document->GetElementById("tab");
+	Element* cr = document->GetElementById("cr");
+	Element* direct = document->GetElementById("direct");
+	Element* outside = document->GetElementById("outside");
+	REQUIRE(tab);
+	REQUIRE(cr);
+	REQUIRE(direct);
+	REQUIRE(outside);
+	CHECK(tab->GetBox().GetSize() == Vector2f(11.f, 12.f));
+	CHECK(cr->GetBox().GetSize() == Vector2f(13.f, 14.f));
+	CHECK(direct->GetBox().GetSize() == Vector2f(17.f, 18.f));
+	CHECK(outside->GetBox().GetSize() != Vector2f(11.f, 12.f));
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("texture_layout.large_area_estimate")
+{
+	TextureLayout layout;
+	layout.AddRectangle(0, Vector2i(50000, 50000));
+	CHECK_FALSE(layout.GenerateLayout(128));
+}
+
+class TestVerticalInstancer : public DecoratorTiledVerticalInstancer {
+public:
+	using DecoratorTiledInstancer::GetTileProperties;
+};
+
+TEST_CASE("style_sheet_parser.named_decorator_sources")
+{
+	Context* context = TestsShell::GetContext();
+	{
+	const String css = R"(
+		@decorator base : tiled-vertical { top-image-src: same.png; center-image-src: same.png; }
+		@decorator child : base { center-image-src: other.png; }
+		@decorator grandchild : child { bottom-image-src: same.png; }
+	)";
+	StreamMemory stream{reinterpret_cast<const byte*>(css.data()), css.size()};
+	stream.SetSourceURL(URL("/declaration/theme.rcss"));
+	StyleSheetContainer container;
+	REQUIRE(container.LoadStyleSheetContainer(&stream));
+	container.UpdateCompiledStyleSheet(context);
+	StyleSheet* sheet = container.GetCompiledStyleSheet();
+	REQUIRE(sheet);
+	const NamedDecorator* base = sheet->GetNamedDecorator("base");
+	const NamedDecorator* child = sheet->GetNamedDecorator("child");
+	const NamedDecorator* grandchild = sheet->GetNamedDecorator("grandchild");
+	REQUIRE(base);
+	REQUIRE(child);
+	REQUIRE(grandchild);
+	const auto& spec = base->instancer->GetPropertySpecification();
+	const auto top = spec.GetProperty("top-image-src")->GetId();
+	const auto center = spec.GetProperty("center-image-src")->GetId();
+	CHECK(child->properties.GetProperty(top)->source == base->properties.GetProperty(top)->source);
+	CHECK(child->properties.GetProperty(center)->source != base->properties.GetProperty(center)->source);
+	CHECK(grandchild->properties.GetProperty(center)->source == child->properties.GetProperty(center)->source);
+	CHECK(grandchild->properties.GetProperty(top)->source->path == "/declaration/theme.rcss");
+
+	// Simulate inherited properties originating in different directories, including equal filenames.
+	PropertyDictionary properties = grandchild->properties;
+	Property center_property = *properties.GetProperty(center);
+	center_property.value = String("same.png");
+	center_property.source = MakeShared<PropertySource>("/other/theme.rcss", 1, "");
+	properties.SetProperty(center, center_property);
+	DecoratorInstancerInterface interface(TestsShell::GetContext()->GetRenderManager(), *sheet, grandchild->source.get());
+	auto decorator = grandchild->instancer->InstanceDecorator(grandchild->type, properties, interface);
+	REQUIRE(decorator);
+	TestVerticalInstancer tile_instancer;
+	DecoratorTiled::Tile tiles[3];
+	Texture textures[3];
+	REQUIRE(tile_instancer.GetTileProperties(tiles, textures, 3, properties, interface));
+	CHECK_FALSE(textures[0] == textures[2]);
+	CHECK(interface.GetTexture("same.png", *properties.GetProperty(top)) == interface.GetTexture("same.png"));
+	CHECK_FALSE(interface.GetTexture("same.png", center_property) == interface.GetTexture("same.png"));
+
+	DecoratorDeclarationList declarations;
+	declarations.value = "grandchild";
+	declarations.list.push_back(DecoratorDeclaration{"grandchild", nullptr, {}, BoxArea::Border});
+	PropertySource consumer_a("/consumer-a/view.rcss", 1, "");
+	PropertySource consumer_b("/consumer-b/view.rcss", 1, "");
+	const auto& first = sheet->InstanceDecorators(context->GetRenderManager(), declarations, &consumer_a);
+	REQUIRE(first.size() == 1);
+	auto first_decorator = first[0];
+	const auto& again = sheet->InstanceDecorators(context->GetRenderManager(), declarations, &consumer_a);
+	CHECK(again[0] == first_decorator);
+	const auto& second = sheet->InstanceDecorators(context->GetRenderManager(), declarations, &consumer_b);
+	REQUIRE(second.size() == 1);
+	CHECK(second[0] != first_decorator);
+
+	}
 	TestsShell::ShutdownShell();
 }

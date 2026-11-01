@@ -181,17 +181,20 @@ int ContextProcessTextInput(lua_State* L, Context* obj)
 	const char* text = NULL;
 	int character = -1;
 
-	if (lua_isstring(L, 1))
+	if (lua_type(L, 1) == LUA_TSTRING)
 		text = lua_tostring(L, 1);
 	else
 		character = (int)luaL_checkinteger(L, 1);
 
 	if (character > 0)
-		lua_pushboolean(L, obj->ProcessTextInput((char)character));
+		lua_pushboolean(L, obj->ProcessTextInput((Character)character));
 	else if (text != NULL)
 		lua_pushboolean(L, obj->ProcessTextInput(text));
 	else
+	{
 		Log::Message(Log::LT_WARNING, "Could not process text input on context '%s'.", obj->GetName().c_str());
+		lua_pushboolean(L, false);
+	}
 
 	return 1;
 }

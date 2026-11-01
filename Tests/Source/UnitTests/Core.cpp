@@ -4,11 +4,81 @@
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/FileInterface.h>
+#include <RmlUi/Core/Plugin.h>
+#include <RmlUi/Core/RenderManager.h>
+#include <RmlUi/Core/Texture.h>
+#include <new>
+#include <thread>
+#include <array>
+#include <utility>
+#include <RmlUi/Core/Traits.h>
 #include <Shell.h>
 #include <algorithm>
 #include <doctest.h>
 
 using namespace Rml;
+
+namespace {
+class DocumentOpenPlugin : public Plugin {
+public:
+	int GetEventClasses() override { return EVT_DOCUMENT; }
+	void OnDocumentOpen(Context*, const String& path) override { paths.push_back(path); }
+	Vector<String> paths;
+};
+
+class DocumentOpenFiles : public FileInterface {
+public:
+	DocumentOpenFiles(FileInterface* delegate, DocumentOpenPlugin& plugin) : delegate(delegate), plugin(plugin) {}
+	FileHandle Open(const String& path) override
+	{
+		if (path == target)
+			notified_before_open = !plugin.paths.empty() && plugin.paths.back() == path;
+		return delegate->Open(path);
+	}
+	void Close(FileHandle file) override { delegate->Close(file); }
+	size_t Read(void* buffer, size_t size, FileHandle file) override { return delegate->Read(buffer, size, file); }
+	bool Seek(FileHandle file, long offset, int origin) override { return delegate->Seek(file, offset, origin); }
+	size_t Tell(FileHandle file) override { return delegate->Tell(file); }
+	FileInterface* delegate;
+	DocumentOpenPlugin& plugin;
+	String target;
+	bool notified_before_open = false;
+};
+}
+
+TEST_CASE("core.document_open_notification")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	DocumentOpenPlugin plugin;
+	DocumentOpenFiles files(Rml::GetFileInterface(), plugin);
+	Rml::RegisterPlugin(&plugin);
+	Rml::SetFileInterface(&files);
+
+	files.target = "assets/demo.rml";
+	ElementDocument* document = context->LoadDocument(files.target);
+	CHECK(document);
+	CHECK(files.notified_before_open);
+	CHECK(plugin.paths.size() == 1);
+	if (document) document->Close();
+
+	files.target = "assets/does-not-exist-document-open-test.rml";
+	files.notified_before_open = false;
+	TestsShell::SetNumExpectedWarnings(1);
+	CHECK_FALSE(context->LoadDocument(files.target));
+	TestsShell::SetNumExpectedWarnings(0);
+	CHECK(files.notified_before_open);
+	CHECK(plugin.paths.size() == 2);
+
+	ElementDocument* memory_document = context->LoadDocumentFromMemory("<rml><body/></rml>", "memory-test");
+	CHECK(plugin.paths.size() == 3);
+	CHECK(plugin.paths.back() == "memory-test");
+	if (memory_document) memory_document->Close();
+	Rml::SetFileInterface(files.delegate);
+	Rml::UnregisterPlugin(&plugin);
+	TestsShell::ShutdownShell();
+}
 
 static const String document_textures_rml = R"(
 <rml>
@@ -193,6 +263,53 @@ TEST_CASE("core.load_texture_only_when_visible")
 		REQUIRE(counters.release_texture == 0);
 	}
 
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("core.image_sprite_to_src_and_rect_removal")
+{
+	TestsRenderInterface* renderer = TestsShell::GetTestsRenderInterface();
+	if (!renderer)
+		return;
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+		<rml><head><style>
+		@spritesheet icons { src: /assets/high_scores_alien_3.tga; icon: 0px 0px 64px 64px; }
+		</style></head><body><img id="image" sprite="icon" src="/assets/high_scores_alien_1.tga"
+		 style="width: 100px; height: 100px" rect="2 3 10 20"/></body></rml>)");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	context->Render();
+	Element* image = document->GetElementById("image");
+	REQUIRE(image);
+	Vector2f dimensions;
+	float ratio = 0;
+	image->GetIntrinsicDimensions(dimensions, ratio);
+	CHECK(dimensions == Vector2f(64, 64));
+	image->RemoveAttribute("sprite");
+	image->GetIntrinsicDimensions(dimensions, ratio);
+	CHECK(dimensions == Vector2f(10, 20));
+	context->Update();
+	context->Render();
+	const size_t compiled = renderer->GetCounters().compile_geometry;
+	image->RemoveAttribute("rect");
+	context->Update();
+	context->Render();
+	CHECK(renderer->GetCounters().compile_geometry > compiled);
+	image->SetAttribute("rect", "2 3 10 20");
+	context->Update();
+	context->Render();
+	const size_t compiled_with_rect = renderer->GetCounters().compile_geometry;
+	INFO("Expected warning: invalid image rect.");
+	TestsShell::SetNumExpectedWarnings(1);
+	image->SetAttribute("rect", "invalid");
+	context->Update();
+	context->Render();
+	TestsShell::SetNumExpectedWarnings(0);
+	CHECK(renderer->GetCounters().compile_geometry > compiled_with_rect);
 	document->Close();
 	TestsShell::ShutdownShell();
 }
@@ -429,4 +546,38 @@ TEST_CASE("core.RemoveContext")
 	}
 
 	Shell::Shutdown();
+}
+
+TEST_CASE("texture source survives render manager address reuse")
+{
+	REQUIRE(TestsShell::GetContext());
+	TestsRenderInterface renderer;
+	alignas(RenderManager) unsigned char storage[sizeof(RenderManager)];
+	TextureSource source("?source", "");
+	auto* manager = new (storage) RenderManager(&renderer);
+	CHECK(source.GetTexture(*manager) == manager->LoadTexture("?source"));
+	manager->~RenderManager();
+	manager = new (storage) RenderManager(&renderer);
+	manager->LoadTexture("?other");
+	CHECK(source.GetTexture(*manager) == manager->LoadTexture("?source"));
+	manager->~RenderManager();
+	TestsShell::ShutdownShell();
+}
+
+namespace {
+template <size_t N> struct FamilyTestType {};
+template <size_t... I>
+void CheckConcurrentFamilyIds(std::index_sequence<I...>)
+{
+	std::array<int, sizeof...(I)> ids{};
+	std::array<std::thread, sizeof...(I)> threads{std::thread([&ids] { ids[I] = int(Family<FamilyTestType<I>>::Id()); })...};
+	for (auto& thread : threads) thread.join();
+	std::sort(ids.begin(), ids.end());
+	CHECK(std::adjacent_find(ids.begin(), ids.end()) == ids.end());
+}
+}
+
+TEST_CASE("family identifiers are unique under concurrent first use")
+{
+	CheckConcurrentFamilyIds(std::make_index_sequence<64>{});
 }

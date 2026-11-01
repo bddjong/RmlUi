@@ -3,11 +3,46 @@
 #include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/ElementInstancer.h>
 #include <RmlUi/Core/Elements/ElementFormControlSelect.h>
 #include <RmlUi/Core/EventListener.h>
+#include <RmlUi/Core/Factory.h>
 #include <doctest.h>
 
 using namespace Rml;
+
+namespace {
+class InvalidOptionInstancer : public ElementInstancer {
+public:
+	bool return_null = true;
+	ElementPtr InstanceElement(Element*, const String&, const XMLAttributes&) override
+	{
+		return return_null ? ElementPtr{} : ElementPtr(new Element("div"));
+	}
+	void ReleaseElement(Element* element) override { delete element; }
+};
+}
+
+TEST_CASE("select.invalid_option_instancer")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementInstancer* original = Factory::GetElementInstancer("option");
+	InvalidOptionInstancer instancer;
+	Factory::RegisterElementInstancer("option", &instancer);
+	for (int i = 0; i < 2; ++i)
+	{
+		instancer.return_null = (i == 0);
+		// The failed option and its orphaned text both produce diagnostics.
+		TestsShell::SetNumExpectedWarnings(2);
+		ElementDocument* document = context->LoadDocumentFromMemory("<rml><body><select><option>bad</option></select></body></rml>");
+		if (document)
+			document->Close();
+		TestsShell::SetNumExpectedWarnings(0);
+	}
+	Factory::RegisterElementInstancer("option", original);
+	TestsShell::ShutdownShell();
+}
 
 static const String basic_doc_rml = R"(
 <rml>
@@ -541,5 +576,21 @@ TEST_CASE("form.select.event.change")
 
 	document->Close();
 
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("form.select.selection_clamps")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory("<rml><body><select id='s'><option value='a'>A</option><option value='b'>B</option></select></body></rml>");
+	REQUIRE(document);
+	auto* select = rmlui_dynamic_cast<ElementFormControlSelect*>(document->GetElementById("s"));
+	REQUIRE(select);
+	select->SetSelection(-10);
+	CHECK(select->GetSelection() == 0);
+	select->SetSelection(100);
+	CHECK(select->GetSelection() == 1);
+	document->Close();
 	TestsShell::ShutdownShell();
 }

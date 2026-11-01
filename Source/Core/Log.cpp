@@ -17,10 +17,10 @@ void Log::Message(Log::Type type, const char* fmt, ...)
 	// Print the message to the buffer.
 	va_start(argument_list, fmt);
 	int len = vsnprintf(buffer, buffer_size - 2, fmt, argument_list);
-	if (len < 0 || len > buffer_size - 2)
-	{
-		len = buffer_size - 2;
-	}
+	if (len < 0)
+		len = 0;
+	else if (len >= buffer_size - 2)
+		len = buffer_size - 3;
 	buffer[len] = '\0';
 	va_end(argument_list);
 
@@ -39,10 +39,10 @@ void Log::ParseError(const String& filename, int line_number, const char* fmt, .
 	// Print the message to the buffer.
 	va_start(argument_list, fmt);
 	int len = vsnprintf(buffer, buffer_size - 2, fmt, argument_list);
-	if (len < 0 || len > buffer_size - 2)
-	{
-		len = buffer_size - 2;
-	}
+	if (len < 0)
+		len = 0;
+	else if (len >= buffer_size - 2)
+		len = buffer_size - 3;
 	buffer[len] = '\0';
 	va_end(argument_list);
 

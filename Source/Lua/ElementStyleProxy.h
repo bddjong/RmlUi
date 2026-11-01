@@ -1,5 +1,6 @@
 #pragma once
 
+#include <RmlUi/Core/Element.h>
 #include <RmlUi/Lua/IncludeLua.h>
 #include <RmlUi/Lua/LuaType.h>
 
@@ -8,7 +9,7 @@ class Element;
 
 namespace Lua {
 struct ElementStyleProxy {
-	Element* owner;
+	ObserverPtr<Element> owner;
 };
 
 template <>

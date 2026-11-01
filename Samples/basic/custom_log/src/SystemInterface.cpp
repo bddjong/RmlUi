@@ -7,7 +7,7 @@
 	#include <RmlUi_Include_Windows.h>
 #endif
 
-SystemInterface::SystemInterface()
+SystemInterface::SystemInterface(Rml::SystemInterface* backend) : backend(backend)
 {
 	fp = fopen("log.txt", "wt");
 }

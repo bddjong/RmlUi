@@ -169,3 +169,63 @@ TEST_CASE("FormatString")
 		CHECK(length == string_size);
 	}
 }
+
+TEST_CASE("StringUtilities::Replace empty search")
+{
+	CHECK(StringUtilities::Replace("abc", "", "x") == "abc");
+	CHECK(StringUtilities::Replace("abc", "", "") == "abc");
+}
+
+TEST_CASE("StringIteratorU8 boundaries and traversal")
+{
+	const String text = "A\xc3\xa9\xf0\x9f\x98\x80";
+	StringIteratorU8 it(text);
+	CHECK(it.offset() == 0);
+	CHECK(*it == Character('A'));
+	++it;
+	CHECK(it.offset() == 1);
+	CHECK(*it == Character(0xe9));
+	++it;
+	CHECK(it.offset() == 3);
+	CHECK(*it == Character(0x1f600));
+	++it;
+	CHECK_FALSE(bool(it));
+	CHECK(it.offset() == 7);
+	++it;
+	CHECK(it.offset() == 7);
+	--it;
+	CHECK(it.offset() == 3);
+	--it;
+	CHECK(it.offset() == 1);
+	--it;
+	CHECK(it.offset() == 0);
+	const auto begin = it;
+	--it;
+	CHECK_FALSE(bool(it));
+	CHECK(it.offset() == -1);
+	CHECK(it.get() == text.data());
+	CHECK(it != begin);
+	--it;
+	CHECK(it.offset() == -1);
+	++it;
+	CHECK(it == begin);
+	CHECK(bool(it));
+
+	const String empty;
+	StringIteratorU8 empty_it(empty);
+	CHECK_FALSE(bool(empty_it));
+	--empty_it;
+	CHECK_FALSE(bool(empty_it));
+	CHECK(empty_it.offset() == -1);
+	++empty_it;
+	CHECK_FALSE(bool(empty_it));
+	CHECK(empty_it.offset() == 0);
+
+	// A leading continuation byte must not make backward seeking cross begin.
+	const String malformed("\x80\x80", 2);
+	StringIteratorU8 malformed_it(malformed, malformed.size());
+	--malformed_it;
+	CHECK(malformed_it.offset() == 0);
+	--malformed_it;
+	CHECK(malformed_it.offset() == -1);
+}

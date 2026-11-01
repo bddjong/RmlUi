@@ -51,7 +51,6 @@ public:
 private:
 	String source;
 	String document_path;
-	mutable SmallUnorderedMap<RenderManager*, Texture> textures;
 };
 
 } // namespace Rml

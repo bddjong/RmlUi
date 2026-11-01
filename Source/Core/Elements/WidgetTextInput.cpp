@@ -141,9 +141,9 @@ void WidgetTextInputContext::CommitComposition(StringView composition)
 		int composition_length = (int)StringUtilities::LengthUTF8(composition);
 
 		// The requested text value would exceed the length restriction after replacing the original value.
-		if (value_length + composition_length - (start - end) > owner->GetMaxLength())
+		if (value_length + composition_length - (end - start) > owner->GetMaxLength())
 		{
-			int new_length = owner->GetMaxLength() - (value_length - composition_length);
+			int new_length = Math::Max(0, owner->GetMaxLength() - (value_length - (end - start)));
 			int new_length_byte = StringUtilities::ConvertCharacterOffsetToByteOffset(composition, new_length);
 			composition = StringView(composition.begin(), composition.begin() + new_length_byte);
 		}
@@ -741,14 +741,22 @@ bool WidgetTextInput::AddCharacters(String string)
 {
 	SanitizeValue(string);
 
-	if (selection_length > 0)
+	if (string.empty())
+		return false;
+
+	const bool deleted_selection = selection_length > 0;
+	if (deleted_selection)
 		DeleteSelection();
 
 	if (max_length >= 0)
 		ClampValue(string, Math::Max(max_length - GetLength(), 0));
 
 	if (string.empty())
-		return false;
+	{
+		if (deleted_selection)
+			DispatchChangeEvent();
+		return deleted_selection;
+	}
 
 	String value = GetAttributeValue();
 	const int attribute_insert_index = DisplayIndexToAttributeIndex(absolute_cursor_index, value);
@@ -813,6 +821,8 @@ bool WidgetTextInput::MoveCursorHorizontal(CursorMovement movement, bool select,
 	case CursorMovement::PreviousWord:
 	{
 		// First skip whitespace, then skip all characters of the same class as the first non-whitespace character.
+		if (absolute_cursor_index == 0)
+			break;
 		CharacterClass skip_character_class = CharacterClass::Whitespace;
 		const char* p_rend = value.data();
 		const char* p_rbegin = p_rend + absolute_cursor_index;

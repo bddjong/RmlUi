@@ -46,9 +46,7 @@ bool SetContext(Context* context)
 	if (plugin == nullptr)
 		return false;
 
-	plugin->SetContext(context);
-
-	return true;
+	return plugin->SetContext(context);
 }
 
 void SetVisible(bool visibility)

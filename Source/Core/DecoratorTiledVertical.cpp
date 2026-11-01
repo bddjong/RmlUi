@@ -33,12 +33,12 @@ bool DecoratorTiledVertical::Initialise(const Tile* _tiles, const Texture* _text
 	if (tiles[TOP].texture_index == -1 && tiles[BOTTOM].texture_index > -1)
 	{
 		tiles[TOP] = tiles[BOTTOM];
-		tiles[TOP].orientation = FLIP_HORIZONTAL;
+		tiles[TOP].orientation = TileOrientation(tiles[TOP].orientation ^ FLIP_VERTICAL);
 	}
 	else if (tiles[BOTTOM].texture_index == -1 && tiles[TOP].texture_index > -1)
 	{
 		tiles[BOTTOM] = tiles[TOP];
-		tiles[BOTTOM].orientation = FLIP_HORIZONTAL;
+		tiles[BOTTOM].orientation = TileOrientation(tiles[BOTTOM].orientation ^ FLIP_VERTICAL);
 	}
 	else if (tiles[TOP].texture_index == -1 && tiles[BOTTOM].texture_index == -1)
 		return false;
@@ -109,7 +109,7 @@ void DecoratorTiledVertical::ReleaseElementData(DecoratorDataHandle element_data
 
 void DecoratorTiledVertical::RenderElement(Element* element, DecoratorDataHandle element_data) const
 {
-	Vector2f translation = element->GetAbsoluteOffset(BoxArea::Padding).Round();
+	Vector2f translation = element->GetAbsoluteOffset(BoxArea::Border).Round();
 	DecoratorTiledVerticalData* data = reinterpret_cast<DecoratorTiledVerticalData*>(element_data);
 
 	for (int i = 0; i < data->num_textures; i++)

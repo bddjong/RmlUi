@@ -179,28 +179,28 @@ struct RMLUICORE_API TransformPrimitive {
 		DECOMPOSEDMATRIX4
 	};
 
-	TransformPrimitive(Transforms::Matrix2D p) : type(MATRIX2D) { matrix_2d = p; }
-	TransformPrimitive(Transforms::Matrix3D p) : type(MATRIX3D) { matrix_3d = p; }
-	TransformPrimitive(Transforms::TranslateX p) : type(TRANSLATEX) { translate_x = p; }
-	TransformPrimitive(Transforms::TranslateY p) : type(TRANSLATEY) { translate_y = p; }
-	TransformPrimitive(Transforms::TranslateZ p) : type(TRANSLATEZ) { translate_z = p; }
-	TransformPrimitive(Transforms::Translate2D p) : type(TRANSLATE2D) { translate_2d = p; }
-	TransformPrimitive(Transforms::Translate3D p) : type(TRANSLATE3D) { translate_3d = p; }
-	TransformPrimitive(Transforms::ScaleX p) : type(SCALEX) { scale_x = p; }
-	TransformPrimitive(Transforms::ScaleY p) : type(SCALEY) { scale_y = p; }
-	TransformPrimitive(Transforms::ScaleZ p) : type(SCALEZ) { scale_z = p; }
-	TransformPrimitive(Transforms::Scale2D p) : type(SCALE2D) { scale_2d = p; }
-	TransformPrimitive(Transforms::Scale3D p) : type(SCALE3D) { scale_3d = p; }
-	TransformPrimitive(Transforms::RotateX p) : type(ROTATEX) { rotate_x = p; }
-	TransformPrimitive(Transforms::RotateY p) : type(ROTATEY) { rotate_y = p; }
-	TransformPrimitive(Transforms::RotateZ p) : type(ROTATEZ) { rotate_z = p; }
-	TransformPrimitive(Transforms::Rotate2D p) : type(ROTATE2D) { rotate_2d = p; }
-	TransformPrimitive(Transforms::Rotate3D p) : type(ROTATE3D) { rotate_3d = p; }
-	TransformPrimitive(Transforms::SkewX p) : type(SKEWX) { skew_x = p; }
-	TransformPrimitive(Transforms::SkewY p) : type(SKEWY) { skew_y = p; }
-	TransformPrimitive(Transforms::Skew2D p) : type(SKEW2D) { skew_2d = p; }
-	TransformPrimitive(Transforms::Perspective p) : type(PERSPECTIVE) { perspective = p; }
-	TransformPrimitive(Transforms::DecomposedMatrix4 p) : type(DECOMPOSEDMATRIX4) { decomposed_matrix_4 = p; }
+	TransformPrimitive(Transforms::Matrix2D p) : type(MATRIX2D), matrix_2d(p) {}
+	TransformPrimitive(Transforms::Matrix3D p) : type(MATRIX3D), matrix_3d(p) {}
+	TransformPrimitive(Transforms::TranslateX p) : type(TRANSLATEX), translate_x(p) {}
+	TransformPrimitive(Transforms::TranslateY p) : type(TRANSLATEY), translate_y(p) {}
+	TransformPrimitive(Transforms::TranslateZ p) : type(TRANSLATEZ), translate_z(p) {}
+	TransformPrimitive(Transforms::Translate2D p) : type(TRANSLATE2D), translate_2d(p) {}
+	TransformPrimitive(Transforms::Translate3D p) : type(TRANSLATE3D), translate_3d(p) {}
+	TransformPrimitive(Transforms::ScaleX p) : type(SCALEX), scale_x(p) {}
+	TransformPrimitive(Transforms::ScaleY p) : type(SCALEY), scale_y(p) {}
+	TransformPrimitive(Transforms::ScaleZ p) : type(SCALEZ), scale_z(p) {}
+	TransformPrimitive(Transforms::Scale2D p) : type(SCALE2D), scale_2d(p) {}
+	TransformPrimitive(Transforms::Scale3D p) : type(SCALE3D), scale_3d(p) {}
+	TransformPrimitive(Transforms::RotateX p) : type(ROTATEX), rotate_x(p) {}
+	TransformPrimitive(Transforms::RotateY p) : type(ROTATEY), rotate_y(p) {}
+	TransformPrimitive(Transforms::RotateZ p) : type(ROTATEZ), rotate_z(p) {}
+	TransformPrimitive(Transforms::Rotate2D p) : type(ROTATE2D), rotate_2d(p) {}
+	TransformPrimitive(Transforms::Rotate3D p) : type(ROTATE3D), rotate_3d(p) {}
+	TransformPrimitive(Transforms::SkewX p) : type(SKEWX), skew_x(p) {}
+	TransformPrimitive(Transforms::SkewY p) : type(SKEWY), skew_y(p) {}
+	TransformPrimitive(Transforms::Skew2D p) : type(SKEW2D), skew_2d(p) {}
+	TransformPrimitive(Transforms::Perspective p) : type(PERSPECTIVE), perspective(p) {}
+	TransformPrimitive(Transforms::DecomposedMatrix4 p) : type(DECOMPOSEDMATRIX4), decomposed_matrix_4(p) {}
 
 	Type type;
 

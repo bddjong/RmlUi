@@ -155,9 +155,11 @@ void benchmark(const String& document_rml)
 			ElementDocument* document = context->LoadDocumentFromMemory(document_rml);
 			document->Show();
 			context->Update();
-			TestsShell::BeginFrame();
-			context->Render();
-			TestsShell::PresentFrame();
+			if (TestsShell::BeginFrame())
+			{
+				context->Render();
+				TestsShell::PresentFrame();
+			}
 			document->Close();
 			context->Update();
 		});
@@ -199,9 +201,11 @@ void benchmark(const String& document_rml)
 			ElementDocument* document = context->LoadDocumentFromMemory(document_rml);
 			document->Show();
 			context->Update();
-			TestsShell::BeginFrame();
-			context->Render();
-			TestsShell::PresentFrame();
+			if (TestsShell::BeginFrame())
+			{
+				context->Render();
+				TestsShell::PresentFrame();
+			}
 			document->Close();
 			context->Update();
 		});

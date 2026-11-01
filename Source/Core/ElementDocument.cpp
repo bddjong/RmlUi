@@ -8,6 +8,7 @@
 #include "../../Include/RmlUi/Core/StyleSheetContainer.h"
 #include "DocumentHeader.h"
 #include "ElementStyle.h"
+#include "ElementFocus.h"
 #include "EventDispatcher.h"
 #include "Layout/LayoutDetails.h"
 #include "Layout/LayoutEngine.h"
@@ -34,7 +35,7 @@ namespace {
 
 		const ComputedValues& computed = element->GetComputedValues();
 
-		if (computed.focus() == Style::Focus::None)
+		if (computed.focus() == Style::Focus::None || IsDisabledForFocus(element))
 			return CanFocus::NoAndNoChildren;
 
 		if (computed.tab_index() == Style::TabIndex::Auto)

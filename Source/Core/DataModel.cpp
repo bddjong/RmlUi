@@ -31,7 +31,7 @@ static DataAddress ParseAddress(const String& address_str)
 			if (i_close == String::npos)
 				return DataAddress();
 
-			int index = FromString<int>(item.substr(i_open + 1, i_close - i_open), -1);
+			int index = FromString<int>(item.substr(i_open + 1, i_close - i_open - 1), -1);
 			if (index < 0)
 				return DataAddress();
 

@@ -1,4 +1,7 @@
 #include "../Common/TestsInterface.h"
+#include <RmlUi/Core/Animation.h>
+#include <RmlUi/Core/ComputedValues.h>
+#include <RmlUi/Core/TypeConverter.h>
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/DecorationTypes.h>
@@ -259,4 +262,36 @@ TEST_CASE("Property.ToString")
 		"drop-shadow(#000 30px 20px 5px) opacity(0.2) sepia(0.2)");
 
 	Rml::Shutdown();
+}
+
+TEST_CASE("Property conversion replaces output and preserves angle stops")
+{
+	AnimationList animations;
+	String output = "stale";
+	CHECK((TypeConverter<AnimationList, String>::Convert(animations, output)));
+	CHECK(output.empty());
+	ColorStopList stops = {ColorStop{ColourbPremultiplied(255, 0, 0), NumericValue{90.f, Unit::DEG}},
+		ColorStop{ColourbPremultiplied(0, 0, 255), NumericValue{1.f, Unit::RAD}}};
+	CHECK((TypeConverter<ColorStopList, String>::Convert(stops, output)));
+	CHECK(output.find("90deg") != String::npos);
+	CHECK(output.find("1rad") != String::npos);
+}
+
+TEST_CASE("Property import accepts zero specificity")
+{
+	PropertyDictionary source, destination;
+	source.SetProperty(PropertyId::Width, Property(1.f, Unit::PX, 10));
+	destination.Import(source, 0);
+	REQUIRE(destination.GetProperty(PropertyId::Width));
+	CHECK(destination.GetProperty(PropertyId::Width)->specificity == 0);
+}
+
+TEST_CASE("computed border defaults and radius bounds")
+{
+	Rml::Style::ComputedValues values(nullptr);
+	CHECK(values.border_top_color() == Rml::Colourb(0, 0, 0, 255));
+	values.border_top_left_radius(32768.f);
+	CHECK(values.border_top_left_radius() == 32767.f);
+	values.border_top_width(65535);
+	CHECK(values.border_top_width() == 65535.f);
 }

@@ -95,8 +95,9 @@ bool Backend::Initialize(const char* name, int width, int height, bool allow_res
 void Backend::Shutdown()
 {
 	RMLUI_ASSERT(data);
-	glfwDestroyWindow(data->window);
+	GLFWwindow* window = data->window;
 	data.reset();
+	glfwDestroyWindow(window);
 	RmlGL3::Shutdown();
 	glfwTerminate();
 }
@@ -153,11 +154,12 @@ void Backend::RequestExit()
 	glfwSetWindowShouldClose(data->window, GLFW_TRUE);
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
 	data->render_interface.BeginFrame();
 	data->render_interface.Clear();
+	return true;
 }
 
 void Backend::PresentFrame()

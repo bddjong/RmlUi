@@ -236,7 +236,7 @@ def process_file(in_file):
 		line = re.sub(r'(font(-size):[^;}\"]*)x-small', r'\1 0.7em', line, flags = re.IGNORECASE)
 		line = re.sub(r'(font(-size):[^;}\"]*)xx-small', r'\1 0.5em', line, flags = re.IGNORECASE)
 		line = re.sub(r'font:[^;}]*\b([0-9]+[a-z]+)\b[^;}]*([;}])', r'font-size: \1 \2', line, flags = re.IGNORECASE)
-		line = re.sub(r'font-family:[^;}]*[;}]', r'', line, flags = re.IGNORECASE)
+		line = re.sub(r'font-family:[^;}]*(?:;|(?=}))', r'', line, flags = re.IGNORECASE)
 		line = re.sub(r'(line-height:)\s*normal', r'\1 1.2em', line, flags = re.IGNORECASE)
 		line = re.sub(r'-moz-box-sizing', r'box-sizing', line, flags = re.IGNORECASE)
 		line = re.sub(r'cyan', r'aqua', line, flags = re.IGNORECASE)
@@ -273,10 +273,10 @@ def process_file(in_file):
 			den = match.group(6)
 			add_num = match.group(2) or 0
 			add_unit = match.group(3) or unit
-			if unit == add_unit:
+			if unit.lower() == add_unit.lower() and int(den) != 0:
 				calc_result = "{}{}".format(float(add_num) + float(num) / float(den), unit)
 			else:
-				calc_result = match.span()
+				calc_result = match.group(0)
 			new_line += line[prev_end:match.start()] + calc_result
 			prev_end = match.end()
 		new_line += line[prev_end:]

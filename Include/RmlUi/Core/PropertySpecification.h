@@ -45,9 +45,14 @@ public:
 	/// @param[in] inherited True if this property is inherited from parent to child, false otherwise.
 	/// @param[in] forces_layout True if this property requires its parent to be reformatted if changed.
 	/// @param[in] id If 'Invalid' then automatically assigns a new id, otherwise assigns the given id.
-	/// @return The new property definition, ready to have parsers attached.
+	/// @return The new property definition, ready to have parsers attached. Aborts if registration fails.
 	PropertyDefinition& RegisterProperty(const String& property_name, const String& default_value, bool inherited, bool forces_layout,
 		PropertyId id = PropertyId::Invalid);
+	/// Attempts registration; returns nullptr on duplicate name, duplicate ID, invalid name, or capacity exhaustion.
+	/// On failure the specification is unchanged. The reference-returning overload aborts on failure.
+	PropertyDefinition* TryRegisterProperty(const String& property_name, const String& default_value, bool inherited, bool forces_layout,
+		PropertyId id = PropertyId::Invalid);
+
 	/// Returns a property definition.
 	/// @param[in] id The id of the desired property.
 	/// @return The appropriate property definition if it could be found, nullptr otherwise.

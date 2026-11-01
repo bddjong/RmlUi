@@ -462,6 +462,13 @@ static void DetermineChunkBidiTypes(SBMutableTextRef text, SBUInteger index, SBU
 static void ReplaceBidiTypes(SBMutableTextRef text,
     SBUInteger rangeStart, SBUInteger oldLength, SBUInteger newLength)
 {
+    SBUInteger paragraphIndex;
+    /* Every retained paragraph borrows these buffers, which may move or shift. */
+    for (paragraphIndex = 0; paragraphIndex < text->paragraphs.count; paragraphIndex++) {
+        TextParagraphRef paragraph = ListGetRef(&text->paragraphs, paragraphIndex);
+        paragraph->needsReanalysis = SBTrue;
+    }
+
     if (newLength > oldLength) {
         ListReserveRange(&text->bidiTypes, rangeStart, newLength - oldLength);
     } else {
@@ -759,18 +766,27 @@ SBMutableTextRef SBTextCreateMutableCopy(SBTextRef text)
         SBUInteger paragraphIndex;
 
         /* Copy code units */
-        ListReserveRange(&copy->codeUnits, 0, text->codeUnits.count);
+        if (!ListReserveRange(&copy->codeUnits, 0, text->codeUnits.count)) {
+            SBTextRelease(copy);
+            return NULL;
+        }
         byteCount = text->codeUnits.count * text->codeUnits.itemSize;
-        memcpy(copy->codeUnits.data, text->codeUnits.data, byteCount);
+        if (byteCount) memcpy(copy->codeUnits.data, text->codeUnits.data, byteCount);
 
         /* Copy bidi types */
-        ListReserveRange(&copy->bidiTypes, 0, text->bidiTypes.count);
+        if (!ListReserveRange(&copy->bidiTypes, 0, text->bidiTypes.count)) {
+            SBTextRelease(copy);
+            return NULL;
+        }
         byteCount = text->bidiTypes.count * sizeof(SBBidiType);
-        memcpy(copy->bidiTypes.items, text->bidiTypes.items, byteCount);
+        if (byteCount) memcpy(copy->bidiTypes.items, text->bidiTypes.items, byteCount);
 
         /* Copy paragraphs */
         paragraphCount = text->paragraphs.count;
-        ListReserveRange(&copy->paragraphs, 0, paragraphCount);
+        if (!ListReserveRange(&copy->paragraphs, 0, paragraphCount)) {
+            SBTextRelease(copy);
+            return NULL;
+        }
 
         for (paragraphIndex = 0; paragraphIndex < paragraphCount; paragraphIndex++) {
             TextParagraphRef source = ListGetRef(&text->paragraphs, paragraphIndex);
@@ -780,19 +796,9 @@ SBMutableTextRef SBTextCreateMutableCopy(SBTextRef text)
             destination->length = source->length;
             ListInitialize(&destination->scripts, sizeof(SBScript));
 
-            if (source->needsReanalysis) {
-                destination->needsReanalysis = SBTrue;
-                destination->bidiParagraph = NULL;
-            } else {
-                SBUInteger scriptCount = source->scripts.count;
-
-                destination->needsReanalysis = SBFalse;
-                destination->bidiParagraph = SBParagraphRetain(source->bidiParagraph);
-
-                ListReserveRange(&destination->scripts, 0, scriptCount);
-                byteCount = scriptCount * sizeof(SBScript);
-                memcpy(destination->scripts.items, source->scripts.items, byteCount);
-            }
+            /* Paragraphs borrow the text buffers, so rebuild them for the copy. */
+            destination->needsReanalysis = SBTrue;
+            destination->bidiParagraph = NULL;
         }
 
         AnalyzeDirtyParagraphs(copy);
@@ -837,7 +843,9 @@ void SBTextInsertCodeUnits(SBMutableTextRef text, SBUInteger index,
         void *destination;
 
         /* Reserve space in code units */
-        ListReserveRange(&text->codeUnits, index, codeUnitCount);
+        if (!ListReserveRange(&text->codeUnits, index, codeUnitCount)) {
+            return;
+        }
 
         byteCount = codeUnitCount * text->codeUnits.itemSize;
         destination = ListGetPtr(&text->codeUnits, index);
@@ -886,16 +894,25 @@ void SBTextDeleteCodeUnits(SBMutableTextRef text, SBUInteger index, SBUInteger l
     }
 }
 
+static void ReplaceCodeUnits(SBMutableTextRef text, SBUInteger index, SBUInteger length,
+    const void *codeUnitBuffer, SBUInteger codeUnitCount, SBBoolean clearAttributes);
+
 void SBTextSetCodeUnits(SBMutableTextRef text,
     const void *codeUnitBuffer, SBUInteger codeUnitCount)
 {
     SBAssert(text->isMutable);
 
-    SBTextReplaceCodeUnits(text, 0, text->codeUnits.count, codeUnitBuffer, codeUnitCount);
+    ReplaceCodeUnits(text, 0, text->codeUnits.count, codeUnitBuffer, codeUnitCount, SBTrue);
 }
 
 void SBTextReplaceCodeUnits(SBMutableTextRef text, SBUInteger index, SBUInteger length,
     const void *codeUnitBuffer, SBUInteger codeUnitCount)
+{
+    ReplaceCodeUnits(text, index, length, codeUnitBuffer, codeUnitCount, SBFalse);
+}
+
+static void ReplaceCodeUnits(SBMutableTextRef text, SBUInteger index, SBUInteger length,
+    const void *codeUnitBuffer, SBUInteger codeUnitCount, SBBoolean clearAttributes)
 {
     SBUInteger rangeEnd = index + length;
     SBBoolean isRangeValid = (rangeEnd <= text->codeUnits.count && index <= rangeEnd);
@@ -904,7 +921,9 @@ void SBTextReplaceCodeUnits(SBMutableTextRef text, SBUInteger index, SBUInteger 
 
     if (length > 0 || codeUnitCount > 0) {
         if (codeUnitCount > length) {
-            ListReserveRange(&text->codeUnits, index, codeUnitCount - length);
+            if (!ListReserveRange(&text->codeUnits, index, codeUnitCount - length)) {
+                return;
+            }
         } else {
             ListRemoveRange(&text->codeUnits, index, length - codeUnitCount);
         }
@@ -922,7 +941,14 @@ void SBTextReplaceCodeUnits(SBMutableTextRef text, SBUInteger index, SBUInteger 
         /* Update paragraph structures */
         UpdateParagraphsForTextReplacement(text, index, length, codeUnitCount);
 
-        AttributeManagerReplaceRange(&text->attributeManager, index, length, codeUnitCount);
+        if (clearAttributes) {
+            SBAttributeRegistryRef registry = text->attributeManager._registry;
+            AttributeManagerFinalize(&text->attributeManager);
+            AttributeManagerInitialize(&text->attributeManager, text, registry);
+            AttributeManagerReplaceRange(&text->attributeManager, 0, 0, codeUnitCount);
+        } else {
+            AttributeManagerReplaceRange(&text->attributeManager, index, length, codeUnitCount);
+        }
 
         if (!text->isEditing) {
             /* Perform immediate analysis if not in batch editing mode */

@@ -193,7 +193,7 @@ int RmlGLFW::ConvertKeyModifiers(int glfw_mods)
 		key_modifier_state |= Rml::Input::KM_ALT;
 
 	if (GLFW_MOD_CAPS_LOCK & glfw_mods)
-		key_modifier_state |= Rml::Input::KM_SCROLLLOCK;
+		key_modifier_state |= Rml::Input::KM_CAPSLOCK;
 
 	if (GLFW_MOD_NUM_LOCK & glfw_mods)
 		key_modifier_state |= Rml::Input::KM_NUMLOCK;

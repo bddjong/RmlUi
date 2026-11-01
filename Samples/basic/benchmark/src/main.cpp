@@ -199,42 +199,31 @@ int main(int /*argc*/, char** /*argv*/)
 			window->performance_test();
 		}
 
-		if (run_loop || single_loop)
+		bool rendered = run_loop || single_loop;
+		if (rendered)
 		{
 			single_loop = false;
 
 			context->Update();
 
-			Backend::BeginFrame();
-			context->Render();
-			Backend::PresentFrame();
+			if (Backend::BeginFrame())
+			{
+				context->Render();
+				Backend::PresentFrame();
+			}
 		}
 
-		static constexpr int buffer_size = 200;
-		static float fps_buffer[buffer_size] = {};
-		static int buffer_index = 0;
-
-		static double t_prev = 0.0f;
-		double t = Rml::GetSystemInterface()->GetElapsedTime();
-		float dt = float(t - t_prev);
-		t_prev = t;
+		static double interval_start = Rml::GetSystemInterface()->GetElapsedTime();
 		static int count_frames = 0;
-		count_frames += 1;
-
-		float fps = 1.0f / dt;
-		fps_buffer[buffer_index] = fps;
-		buffer_index = ((buffer_index + 1) % buffer_size);
-
-		if (window && count_frames > buffer_size / 8)
+		count_frames += rendered ? 1 : 0;
+		double t = Rml::GetSystemInterface()->GetElapsedTime();
+		double elapsed = t - interval_start;
+		if (window && elapsed >= 0.5)
 		{
-			float fps_mean = 0;
-			for (int i = 0; i < buffer_size; i++)
-				fps_mean += fps_buffer[(buffer_index + i) % buffer_size];
-			fps_mean = fps_mean / (float)buffer_size;
-
 			auto el = window->GetDocument()->GetElementById("fps");
+			el->SetInnerRML(Rml::CreateString("FPS: %f", count_frames / elapsed));
 			count_frames = 0;
-			el->SetInnerRML(Rml::CreateString("FPS: %f", fps_mean));
+			interval_start = t;
 		}
 	}
 

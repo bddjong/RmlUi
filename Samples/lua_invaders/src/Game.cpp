@@ -394,6 +394,6 @@ void Game::InitialiseWave()
 	invaders[MOTHERSHIP] = new Mothership(this, MOTHERSHIP);
 
 	// Update the move frequency
-	invader_move_freq = ((float)GameDetails::GetWave() - 100.0f) / 140.0f;
+	invader_move_freq = ((float)(GameDetails::GetWave() < 100 ? GameDetails::GetWave() : 100) - 100.0f) / 140.0f;
 	invader_move_freq *= invader_move_freq;
 }

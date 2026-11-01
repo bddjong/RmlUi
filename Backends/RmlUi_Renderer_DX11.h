@@ -10,6 +10,7 @@
 #include <d3d11.h>
 #include <d3d11_1.h>
 #include <dxgi1_3.h>
+#include <stdexcept>
 
 #ifdef RMLUI_DEBUG
 	#define RMLUI_DX_ASSERTMSG(statement, msg) RMLUI_ASSERTMSG(SUCCEEDED(statement), msg)
@@ -31,6 +32,12 @@ namespace Gfx {
 struct ProgramData;
 struct RenderTargetData;
 } // namespace Gfx
+
+// Construction throws this exception when required D3D resources cannot be created.
+class DX11InitializationError : public std::runtime_error {
+public:
+	DX11InitializationError() : std::runtime_error("DX11 renderer initialization failed") {}
+};
 
 class RenderInterface_DX11 : public Rml::RenderInterface {
 public:
@@ -90,6 +97,11 @@ public:
 	static constexpr Rml::TextureHandle TexturePostprocessNoBinding = Rml::TextureHandle(-3);
 
 private:
+	RenderInterface_DX11();
+	bool Initialize(ID3D11Device* device);
+	RenderInterface_DX11(const RenderInterface_DX11&) = delete;
+	RenderInterface_DX11& operator=(const RenderInterface_DX11&) = delete;
+
 	// Changes blend state if necessary
 	void SetBlendState(ID3D11BlendState* blend_state);
 	void DisableBlend();
@@ -176,6 +188,8 @@ private:
 		ID3D11DepthStencilState* depth_stencil_state;
 		ID3D11ShaderResourceView* pixel_shader_shader_resource;
 		ID3D11SamplerState* pixel_shader_sampler;
+		ID3D11Buffer* pixel_shader_constant_buffers[2];
+		UINT pixel_shader_constant_buffer_offsets[2], pixel_shader_constant_buffer_counts[2];
 		ID3D11PixelShader* pixel_shader;
 		ID3D11VertexShader* vertex_shader;
 		ID3D11GeometryShader* geometry_shader;

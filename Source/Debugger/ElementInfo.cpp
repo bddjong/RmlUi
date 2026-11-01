@@ -68,7 +68,7 @@ void ElementInfo::Reset()
 
 void ElementInfo::OnUpdate()
 {
-	if (source_element && (update_source_element || force_update_once) && IsVisible())
+	if (((source_element && update_source_element) || force_update_once) && IsVisible())
 	{
 		const double t = GetSystemInterface()->GetElapsedTime();
 		const float dt = (float)(t - previous_update_time);
@@ -106,7 +106,7 @@ void ElementInfo::OnElementDestroy(Element* element)
 		hover_element = nullptr;
 
 	if (source_element == element)
-		source_element = nullptr;
+		SetSourceElement(nullptr);
 }
 
 void ElementInfo::RenderHoverElement()
@@ -350,6 +350,9 @@ void ElementInfo::SetSourceElement(Element* new_source_element)
 {
 	source_element = new_source_element;
 	force_update_once = true;
+	// Destruction can happen after this document has already updated for the frame.
+	if (Context* context = GetContext())
+		context->RequestNextUpdate(0);
 }
 
 void ElementInfo::UpdateSourceElement()
@@ -393,7 +396,10 @@ void ElementInfo::UpdateSourceElement()
 					const String grandchild_name = grandchild->GetAttribute<String>("name", "");
 					bool active = (EraseFromList(list, grandchild_name) == 1);
 					if (!active)
+					{
 						child->RemoveChild(grandchild);
+						--j;
+					}
 				}
 				// Finally, create new pseudo buttons for the rest of the active pseudo classes.
 				for (auto& extra_pseudo : list)
@@ -446,7 +452,7 @@ void ElementInfo::UpdateSourceElement()
 			// Text is not an attribute but useful nonetheless
 			if (auto text_element = rmlui_dynamic_cast<ElementText*>(source_element))
 			{
-				const String& text_content = text_element->GetText();
+				const String text_content = StringUtilities::EncodeRml(text_element->GetText());
 				attributes += CreateString("Text: <em>%s</em><br />", text_content.c_str());
 			}
 		}

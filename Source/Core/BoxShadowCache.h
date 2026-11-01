@@ -11,19 +11,21 @@ namespace Style {
 struct BoxShadowGeometryInfo;
 
 struct BoxShadowRenderable : NonCopyMoveable {
-	BoxShadowRenderable(const BoxShadowGeometryInfo& geometry_info);
+	BoxShadowRenderable(RenderManager& render_manager, const BoxShadowGeometryInfo& geometry_info);
 	~BoxShadowRenderable();
 
 	CallbackTexture texture;
 	Geometry geometry;
 	Geometry background_border_geometry;
-	const BoxShadowGeometryInfo& cache_key;
+	const BoxShadowGeometryInfo* cache_key;
+	RenderManager* render_manager;
 };
 
 class BoxShadowCache {
 public:
 	static void Initialize();
 	static void Shutdown();
+	static void ReleaseRenderManager(RenderManager* render_manager);
 
 	/// Returns a handle to BoxShadow renderable matching the element's style - creates new data if none is found.
 	/// @param[in] element Element for which to calculate and cache the box shadow.

@@ -27,6 +27,7 @@ struct NamedDecorator {
 	String type;
 	DecoratorInstancer* instancer;
 	PropertyDictionary properties;
+	SharedPtr<const PropertySource> source;
 };
 using NamedDecoratorMap = UnorderedMap<String, NamedDecorator>;
 

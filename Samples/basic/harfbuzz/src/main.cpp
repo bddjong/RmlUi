@@ -138,9 +138,11 @@ int main(int /*argc*/, char** /*argv*/)
 
 		context->Update();
 
-		Backend::BeginFrame();
-		context->Render();
-		Backend::PresentFrame();
+		if (Backend::BeginFrame())
+		{
+			context->Render();
+			Backend::PresentFrame();
+		}
 	}
 
 	// Shut down debugger before font interface.

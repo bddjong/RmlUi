@@ -277,6 +277,14 @@ int main(int /*argc*/, char** /*argv*/)
 	Shell::LoadFonts();
 
 	Rml::UniquePtr<DemoWindow> window = Rml::MakeUnique<DemoWindow>("Animation sample", context);
+	if (!window->GetDocument())
+	{
+		window.reset();
+		Rml::Shutdown();
+		Backend::Shutdown();
+		Shell::Shutdown();
+		return -1;
+	}
 	window->GetDocument()->AddEventListener(Rml::EventId::Keydown, new Event("hello"));
 	window->GetDocument()->AddEventListener(Rml::EventId::Keyup, new Event("hello"));
 	window->GetDocument()->AddEventListener(Rml::EventId::Animationend, new Event("hello"));
@@ -293,9 +301,11 @@ int main(int /*argc*/, char** /*argv*/)
 			window->Update(t);
 			context->Update();
 
-			Backend::BeginFrame();
-			context->Render();
-			Backend::PresentFrame();
+			if (Backend::BeginFrame())
+			{
+				context->Render();
+				Backend::PresentFrame();
+			}
 
 			single_loop = false;
 		}

@@ -44,6 +44,9 @@ bool InputTypeRadio::OnAttributeChange(const ElementAttributes& changed_attribut
 			});
 	}
 
+	if (changed_attributes.count("name") && element->HasAttribute("checked"))
+		PopRadioSet();
+
 	return true;
 }
 

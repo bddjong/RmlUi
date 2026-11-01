@@ -181,7 +181,17 @@ void ElementLog::OnUpdate()
 			unsigned int log_pointers[Log::LT_MAX];
 			for (int i = 0; i < Log::LT_MAX; i++)
 				log_pointers[i] = 0;
+			int total_messages = 0;
+			for (int i = 0; i < Log::LT_MAX; i++)
+				if (log_types[i].visible)
+					total_messages += (int)log_types[i].log_messages.size();
 			int next_type = FindNextEarliestLogType(log_pointers);
+			while (next_type != -1 && total_messages > MAX_LOG_MESSAGES)
+			{
+				log_pointers[next_type]++;
+				total_messages--;
+				next_type = FindNextEarliestLogType(log_pointers);
+			}
 			int num_messages = 0;
 			while (next_type != -1 && num_messages < MAX_LOG_MESSAGES)
 			{
@@ -197,8 +207,8 @@ void ElementLog::OnUpdate()
 
 			if (message_content->HasChildNodes())
 			{
-				float last_element_top = message_content->GetLastChild()->GetAbsoluteTop();
-				auto_scroll = message_content->GetAbsoluteTop() + message_content->GetAbsoluteTop() > last_element_top;
+				auto_scroll = message_content->GetScrollTop() + message_content->GetClientHeight() >=
+					message_content->GetScrollHeight() - 1.f;
 			}
 			else
 				auto_scroll = true;

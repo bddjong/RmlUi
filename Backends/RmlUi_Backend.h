@@ -33,8 +33,8 @@ bool ProcessEvents(Rml::Context* context, KeyDownCallback key_down_callback = nu
 // Request application closure during the next event processing call.
 void RequestExit();
 
-// Prepares the render state to accept rendering commands from RmlUi, call before rendering the RmlUi context.
-void BeginFrame();
+// Prepares render state. Render the context and present only when this returns true.
+bool BeginFrame();
 // Presents the rendered frame to the screen, call after rendering the RmlUi context.
 void PresentFrame();
 

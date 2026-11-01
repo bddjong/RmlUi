@@ -20,7 +20,7 @@ include(FindPackageMessage)
 if(NOT TARGET glfw)
 	# If no version was specified, set default
 	if(NOT DEFINED glfw3_FIND_VERSION)
-		set(glfw3_FIND_VERSION "1")
+		set(glfw3_FIND_VERSION "3")
 	endif()
 
 	# Check if requested GLFW version is valid

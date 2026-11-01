@@ -358,7 +358,7 @@ TEST_CASE("flexbox")
 
 		bench.run("Render", [&] { context->Render(); });
 
-		bench.run("SetInnerRML", [&] { document->SetInnerRML(rml_flexbox_scroll_body); });
+		bench.run("SetInnerRML", [&] { document->SetInnerRML(rml_flexbox_basic_body); });
 
 		bench.run("SetInnerRML + Update (float reference)", [&] {
 			document_float_reference->SetInnerRML(rml_flexbox_basic_body);
@@ -413,7 +413,7 @@ TEST_CASE("flexbox")
 
 		bench.run("Render", [&] { context->Render(); });
 
-		bench.run("SetInnerRML", [&] { document->SetInnerRML(rml_flexbox_scroll_body); });
+		bench.run("SetInnerRML", [&] { document->SetInnerRML(rml_flexbox_mixed_body); });
 
 		bench.run("SetInnerRML + Update", [&] {
 			document->SetInnerRML(rml_flexbox_mixed_body);

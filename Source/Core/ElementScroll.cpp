@@ -45,8 +45,8 @@ void ElementScroll::EnableScrollbar(Orientation orientation, float element_width
 	if (orientation == HORIZONTAL)
 	{
 		if (box.GetSize().y < 0)
-			scrollbars[orientation].size = box.GetCumulativeEdge(BoxArea::Content, BoxEdge::Left) +
-				box.GetCumulativeEdge(BoxArea::Content, BoxEdge::Right) +
+			scrollbars[orientation].size = box.GetCumulativeEdge(BoxArea::Content, BoxEdge::Top) +
+				box.GetCumulativeEdge(BoxArea::Content, BoxEdge::Bottom) +
 				ResolveValue(scrollbars[orientation].element->GetComputedValues().height(), element_width);
 		else
 			scrollbars[orientation].size = box.GetSize(BoxArea::Margin).y;

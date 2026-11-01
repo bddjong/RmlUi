@@ -156,8 +156,10 @@ void SystemInterface_Win32::ActivateKeyboard(Rml::Vector2f caret_position, float
 Rml::String RmlWin32::ConvertToUTF8(const std::wstring& wstr)
 {
 	const int count = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), NULL, 0, NULL, NULL);
+	if (count <= 0)
+		return {};
 	Rml::String str(count, 0);
-	WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &str[0], count, NULL, NULL);
+	WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), &str[0], count, NULL, NULL);
 	return str;
 }
 

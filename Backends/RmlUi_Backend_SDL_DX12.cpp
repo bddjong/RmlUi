@@ -197,6 +197,7 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 	if (!data->render_interface || !(*data->render_interface))
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to initialize DirectX 12 render interface");
+		data->render_interface.reset();
 		SDL_DestroyWindow(window);
 		data.reset();
 		SDL_Quit();
@@ -377,11 +378,12 @@ void Backend::RequestExit()
 	data->running = false;
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
 	data->render_interface->BeginFrame();
 	data->render_interface->Clear();
+	return true;
 }
 
 void Backend::PresentFrame()

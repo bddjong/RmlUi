@@ -1318,7 +1318,7 @@ namespace templates {
 
 char const* csv() noexcept {
     return R"DELIM("title";"name";"unit";"batch";"elapsed";"error %";"instructions";"branches";"branch misses";"total"
-{{#result}}"{{title}}";"{{name}}";"{{unit}}";{{batch}};{{median(elapsed)}};{{medianAbsolutePercentError(elapsed)}};{{median(instructions)}};{{median(branchinstructions)}};{{median(branchmisses)}};{{sumProduct(iterations, elapsed)}}
+{{#result}}"{{csv(title)}}";"{{csv(name)}}";"{{csv(unit)}}";{{batch}};{{median(elapsed)}};{{medianAbsolutePercentError(elapsed)}};{{median(instructions)}};{{median(branchinstructions)}};{{median(branchmisses)}};{{sumProduct(iterations, elapsed)}}
 {{/result}})DELIM";
 }
 
@@ -1334,12 +1334,12 @@ char const* htmlBoxplot() noexcept {
     <script>
         var data = [
             {{#result}}{
-                name: '{{name}}',
+                name: "{{json(name)}}",
                 y: [{{#measurement}}{{elapsed}}{{^-last}}, {{/last}}{{/measurement}}],
             },
             {{/result}}
         ];
-        var title = '{{title}}';
+        var title = "{{json(title)}}";
 
         data = data.map(a => Object.assign(a, { boxpoints: 'all', pointpos: 0, type: 'box' }));
         var layout = { title: { text: title }, showlegend: false, yaxis: { title: 'time per unit', rangemode: 'tozero', autorange: true } }; Plotly.newPlot('myDiv', data, layout, {responsive: true});
@@ -1366,7 +1366,7 @@ char const* pyperf() noexcept {
     "metadata": {
         "loops": {{sum(iterations)}},
         "inner_loops": {{batch}},
-        "name": "{{title}}",
+        "name": "{{json(title)}}",
         "unit": "second"
     },
     "version": "1.0"
@@ -1377,9 +1377,9 @@ char const* json() noexcept {
     return R"DELIM({
     "results": [
 {{#result}}        {
-            "title": "{{title}}",
-            "name": "{{name}}",
-            "unit": "{{unit}}",
+            "title": "{{json(title)}}",
+            "name": "{{json(name)}}",
+            "unit": "{{json(unit)}}",
             "batch": {{batch}},
             "complexityN": {{complexityN}},
             "epochs": {{epochs}},
@@ -1529,10 +1529,39 @@ static bool matchCmdArgs(std::string const& str, std::vector<std::string>& match
     return true;
 }
 
+// Escape label contents for the built-in CSV and JSON/HTML templates.
+static void writeEscapedLabel(std::ostream& out, std::string const& value, bool csv) {
+    static char const hex[] = "0123456789abcdef";
+    for (unsigned char ch : value) {
+        if (csv) {
+            if (ch == '"') {
+                out << "\"\"";
+            } else {
+                out.put(static_cast<char>(ch));
+            }
+        } else if (ch == '"' || ch == '\\') {
+            out.put('\\');
+            out.put(static_cast<char>(ch));
+        } else if (ch < 0x20 || ch == '<') {
+            // Escaping '<' also prevents a label from closing an HTML script element.
+            out << "\\u00" << hex[ch >> 4] << hex[ch & 15];
+        } else {
+            out.put(static_cast<char>(ch));
+        }
+    }
+}
+
 static bool generateConfigTag(Node const& n, Config const& config, std::ostream& out) {
     using detail::d;
 
-    if (n == "title") {
+    if (n == "csv(title)" || n == "csv(name)" || n == "csv(unit)" ||
+        n == "json(title)" || n == "json(name)" || n == "json(unit)") {
+        bool csv = n == "csv(title)" || n == "csv(name)" || n == "csv(unit)";
+        auto const& value = (n == "csv(title)" || n == "json(title)") ? config.mBenchmarkTitle :
+                            (n == "csv(name)" || n == "json(name)") ? config.mBenchmarkName : config.mUnit;
+        writeEscapedLabel(out, value, csv);
+        return true;
+    } else if (n == "title") {
         out << config.mBenchmarkTitle;
         return true;
     } else if (n == "name") {
@@ -1859,6 +1888,8 @@ void render(char const* mustacheTemplate, std::vector<Result> const& results, st
             if (results.size() == 1) {
                 // result & config are both supported there
                 generateResultTag(n, results.front(), out);
+            } else if (results.empty()) {
+                throw std::runtime_error("render: cannot resolve tag '" + std::string(n.begin, n.end) + "' without results");
             } else {
                 // This just uses the last result's config.
                 if (!generateConfigTag(n, results.back().config(), out)) {

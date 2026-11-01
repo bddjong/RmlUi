@@ -1,4 +1,7 @@
 #include "../Common/TestsShell.h"
+#include "../../../Source/Core/Template.h"
+#include "../../../Source/Core/XMLParseTools.h"
+#include <cstring>
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -306,4 +309,25 @@ TEST_CASE("template.inline+inline.identical.siblings")
 
 	document->Close();
 	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("template.malformed_boundaries")
+{
+	using namespace Rml;
+	const char* text = "<header></header><head></head><body></body>";
+	CHECK(XMLParseTools::FindTag("head", text) == text + 17);
+	CHECK(XMLParseTools::FindTag("head", "<header>") == nullptr);
+	CHECK(XMLParseTools::FindTag("head", "<he") == nullptr);
+	for (const char* input : {"name", "name=", "name='unterminated", "name='value'"})
+	{
+		String name, value;
+		const char* ptr = input;
+		CHECK_FALSE(XMLParseTools::ReadAttribute(ptr, name, value));
+	}
+	for (const char* input : {"<template><head></head", "<template><head></head><body></body"})
+	{
+		StreamMemory stream((const byte*)input, strlen(input));
+		Template document;
+		CHECK_FALSE(document.Load(&stream));
+	}
 }

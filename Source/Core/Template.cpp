@@ -1,6 +1,7 @@
 #include "Template.h"
 #include "../../Include/RmlUi/Core/Element.h"
 #include "../../Include/RmlUi/Core/ElementUtilities.h"
+#include "../../Include/RmlUi/Core/Factory.h"
 #include "../../Include/RmlUi/Core/XMLParser.h"
 #include "XMLParseTools.h"
 #include <string.h>
@@ -32,7 +33,10 @@ bool Template::Load(Stream* stream)
 	if (!head_end)
 		return false;
 	// Advance to the end of the tag
-	head_end = strchr(head_end, '>') + 1;
+	head_end = strchr(head_end, '>');
+	if (!head_end)
+		return false;
+	++head_end;
 
 	// Pull out the body
 	const char* body_start = XMLParseTools::FindTag("body", head_end);
@@ -43,7 +47,10 @@ bool Template::Load(Stream* stream)
 	if (!body_end)
 		return false;
 	// Advance to the end of the tag
-	body_end = strchr(body_end, '>') + 1;
+	body_end = strchr(body_end, '>');
+	if (!body_end)
+		return false;
+	++body_end;
 
 	// Find the RML tag, skip over it and read the attributes,
 	// storing the ones we're interested in.
@@ -66,7 +73,8 @@ bool Template::Load(Stream* stream)
 	header_stream->SetSourceURL(stream->GetSourceURL());
 
 	XMLParser parser(nullptr);
-	parser.Parse(header_stream.get());
+	if (!parser.Parse(header_stream.get()))
+		return false;
 
 	header_stream.reset();
 
@@ -86,8 +94,8 @@ Element* Template::ParseTemplate(Element* element)
 
 	const int num_children_before = element->GetNumChildren();
 
-	XMLParser parser(element);
-	parser.Parse(body.get());
+	if (!Factory::InstanceElementStream(element, body.get()))
+		return element;
 
 	// If there's an inject attribute on the template, attempt to find the required element.
 	if (!content.empty())

@@ -65,6 +65,11 @@ bool PropertyParserNumber::ParseValue(Property& property, const String& value, c
 		return false;
 	}
 
+	while (*str_end && StringUtilities::IsWhitespace(*str_end))
+		++str_end;
+	if (*str_end)
+		return false;
+
 	const auto it = parser_data->unit_string_map.find(str_unit);
 	if (it == parser_data->unit_string_map.end())
 	{

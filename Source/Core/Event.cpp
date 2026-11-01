@@ -129,6 +129,10 @@ void Event::ProjectMouse(Element* element)
 		return;
 	}
 
+	// Start each projection from screen coordinates, including untransformed targets.
+	parameters["mouse_x"] = mouse_screen_position.x;
+	parameters["mouse_y"] = mouse_screen_position.y;
+
 	// Only need to project mouse position if element has a transform state
 	if (element->GetTransformState())
 	{

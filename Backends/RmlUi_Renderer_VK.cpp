@@ -147,7 +147,9 @@ enum class ProgramId : int {
 	Texture_Stencil_Equal,
 	Texture_Stencil_Disabled,
 	Gradient,
+	Gradient_Stencil_Equal,
 	Creation,
+	Creation_Stencil_Equal,
 	// this is for presenting our msaa render target texture for NO MSAA RT
 	// if you do not correctly stuff DX12 validation will say about different
 	// sample count like it is expected 1 (because no MSAA) but your RT target texture was created with
@@ -236,6 +238,8 @@ static void SigmaToParameters(const float desired_sigma, int& out_pass_level, fl
 		case ProgramId::Color_Stencil_Intersect:                                                \
 		case ProgramId::Color_Stencil_Disabled:                                                 \
 		case ProgramId::Gradient:                                                               \
+		case ProgramId::Gradient_Stencil_Equal:                                                 \
+		case ProgramId::Creation_Stencil_Equal:                                                 \
 		case ProgramId::Creation: return m_p_pipeline_layout_transform;                         \
 		case ProgramId::Texture_Stencil_Always:                                                 \
 		case ProgramId::Texture_Stencil_Equal:                                                  \
@@ -438,7 +442,14 @@ bool RenderInterface_VK::Initialize(Rml::Vector<const char*> required_extensions
 
 	Initialize_Surface(create_surface_callback);
 	Initialize_QueueIndecies();
-	Initialize_Device();
+	if (!Initialize_Device())
+	{
+		Destroy_Surface();
+		Destroy_ReportDebugCallback();
+		Destroy_Instance();
+		gladLoaderUnloadVulkan();
+		return false;
+	}
 
 	glad_result = gladLoaderLoadVulkan(m_p_instance, m_p_physical_device, m_p_device);
 	RMLUI_VK_ASSERTMSG(glad_result != 0, "Vulkan loader failed - Device functions");
@@ -522,7 +533,7 @@ void RenderInterface_VK::Initialize_Instance(Rml::Vector<const char*> required_e
 	CreateReportDebugCallback();
 }
 
-void RenderInterface_VK::Initialize_Device() noexcept
+bool RenderInterface_VK::Initialize_Device() noexcept
 {
 	ExtensionPropertiesList device_extension_properties;
 	CreatePropertiesFor_Device(device_extension_properties);
@@ -538,52 +549,45 @@ void RenderInterface_VK::Initialize_Device() noexcept
 
 	float queue_priorities[1] = {0.0f};
 
-	VkDeviceQueueCreateInfo info_queue[2] = {};
+	VkDeviceQueueCreateInfo info_queue[3] = {};
+	const uint32_t queue_families[] = {m_queue_index_graphics, m_queue_index_compute, m_queue_index_present};
+	uint32_t queue_count = 0;
+	for (uint32_t family : queue_families)
+	{
+		bool duplicate = false;
+		for (uint32_t i = 0; i < queue_count; ++i)
+			duplicate |= info_queue[i].queueFamilyIndex == family;
+		if (duplicate)
+			continue;
+		VkDeviceQueueCreateInfo& queue = info_queue[queue_count++];
+		queue.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queue.queueCount = 1;
+		queue.pQueuePriorities = queue_priorities;
+		queue.queueFamilyIndex = family;
+	}
 
-	info_queue[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	info_queue[0].pNext = nullptr;
-	info_queue[0].queueCount = 1;
-	info_queue[0].pQueuePriorities = queue_priorities;
-	info_queue[0].queueFamilyIndex = m_queue_index_graphics;
-
-	info_queue[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	info_queue[1].pNext = nullptr;
-	info_queue[1].queueCount = 1;
-	info_queue[1].pQueuePriorities = queue_priorities;
-	info_queue[1].queueFamilyIndex = m_queue_index_compute;
-
+	// These pipelines use fill rasterization and do not require optional core or subgroup features.
+	// Leave optional features disabled instead of requesting capabilities the device may not have.
 	VkPhysicalDeviceFeatures features_physical_device = {};
-
-	features_physical_device.fillModeNonSolid = true;
-	features_physical_device.fragmentStoresAndAtomics = true;
-	features_physical_device.vertexPipelineStoresAndAtomics = true;
-	features_physical_device.shaderImageGatherExtended = true;
-
-	VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR shader_subgroup_extended_type = {};
-
-	shader_subgroup_extended_type.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES_KHR;
-	shader_subgroup_extended_type.pNext = nullptr;
-	shader_subgroup_extended_type.shaderSubgroupExtendedTypes = VK_TRUE;
-
-	VkPhysicalDeviceFeatures2 features_physical_device2 = {};
-
-	features_physical_device2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-	features_physical_device2.features = features_physical_device;
-	features_physical_device2.pNext = &shader_subgroup_extended_type;
 
 	VkDeviceCreateInfo info_device = {};
 
 	info_device.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-	info_device.pNext = &features_physical_device2;
-	info_device.queueCreateInfoCount = m_queue_index_compute != m_queue_index_graphics ? 2 : 1;
+	info_device.pNext = nullptr;
+	info_device.queueCreateInfoCount = queue_count;
 	info_device.pQueueCreateInfos = info_queue;
 	info_device.enabledExtensionCount = static_cast<uint32_t>(device_extension_names.size());
 	info_device.ppEnabledExtensionNames = info_device.enabledExtensionCount ? device_extension_names.data() : nullptr;
-	info_device.pEnabledFeatures = nullptr;
+	info_device.pEnabledFeatures = &features_physical_device;
 
 	VkResult status = vkCreateDevice(m_p_physical_device, &info_device, nullptr, &m_p_device);
 
-	RMLUI_VK_ASSERTMSG(status == VK_SUCCESS, "failed to vkCreateDevice");
+	if (status != VK_SUCCESS)
+	{
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to create Vulkan device (status %d)", int(status));
+		return false;
+	}
+	return true;
 }
 
 void RenderInterface_VK::Initialize_PhysicalDevice(VkPhysicalDeviceProperties& out_physical_device_properties) noexcept
@@ -646,9 +650,9 @@ void RenderInterface_VK::Initialize_Swapchain(VkExtent2D window_extent) noexcept
 	uint32_t queue_family_index_present = m_queue_index_present;
 	uint32_t queue_family_index_graphics = m_queue_index_graphics;
 
+	uint32_t p_indecies[2] = {queue_family_index_graphics, queue_family_index_present};
 	if (queue_family_index_graphics != queue_family_index_present)
 	{
-		uint32_t p_indecies[2] = {queue_family_index_graphics, queue_family_index_present};
 
 		info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 		info.queueFamilyIndexCount = sizeof(p_indecies) / sizeof(p_indecies[0]);
@@ -1258,6 +1262,8 @@ void RenderInterface_VK::CreateReportDebugCallback() noexcept
 	PFN_vkCreateDebugUtilsMessengerEXT p_callback_creation = VK_NULL_HANDLE;
 
 	p_callback_creation = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(m_p_instance, "vkCreateDebugUtilsMessengerEXT"));
+	if (!p_callback_creation)
+		return;
 	VkResult status = p_callback_creation(m_p_instance, &info, nullptr, &m_debug_messenger);
 	RMLUI_VK_ASSERTMSG(status == VK_SUCCESS, "failed to vkCreateDebugUtilsMessengerEXT");
 #endif
@@ -1476,14 +1482,14 @@ int RenderInterface_VK::Choose_SwapchainImageCount(uint32_t user_swapchain_count
 	RMLUI_ASSERT(user_swapchain_count_for_creation >= caps.minImageCount &&
 		"can't be, you must have a valid count that bounds from minImageCount to maxImageCount! Otherwise you will get a validation error that "
 		"specifies that you created a swapchain with invalid image count");
-	RMLUI_ASSERT(user_swapchain_count_for_creation <= caps.maxImageCount &&
+	RMLUI_ASSERT((caps.maxImageCount == 0 || user_swapchain_count_for_creation <= caps.maxImageCount) &&
 		"can't be, you must have a valid count that bounds from minImageCount to maxImageCount! Otherwise you will get a validation error that "
 		"specifies that you created a swapchain with invalid image count");
 
 	int result = 0;
 
-	if (user_swapchain_count_for_creation < caps.minImageCount || user_swapchain_count_for_creation > caps.maxImageCount)
-		result = if_failed_choose_min ? caps.minImageCount : caps.maxImageCount;
+	if (user_swapchain_count_for_creation < caps.minImageCount || (caps.maxImageCount != 0 && user_swapchain_count_for_creation > caps.maxImageCount))
+		result = (if_failed_choose_min || caps.maxImageCount == 0) ? caps.minImageCount : caps.maxImageCount;
 	else
 		result = user_swapchain_count_for_creation;
 
@@ -1899,8 +1905,8 @@ void RenderInterface_VK::Create_RenderPasses() noexcept
 
 		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 		dependencies[0].dstSubpass = 0;
-		dependencies[0].srcAccessMask = 0;
-		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -1909,8 +1915,8 @@ void RenderInterface_VK::Create_RenderPasses() noexcept
 		dependencies[1].dstSubpass = 0;
 		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-		dependencies[1].srcAccessMask = 0;
-		dependencies[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
 		VkRenderPassCreateInfo info = {};
@@ -1955,8 +1961,8 @@ void RenderInterface_VK::Create_RenderPasses() noexcept
 		VkSubpassDependency dependency = {};
 		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dependency.dstSubpass = 0;
-		dependency.srcAccessMask = 0;
-		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		dependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -2014,8 +2020,8 @@ void RenderInterface_VK::Create_RenderPasses() noexcept
 
 		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 		dependencies[0].dstSubpass = 0;
-		dependencies[0].srcAccessMask = 0;
-		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -2024,8 +2030,8 @@ void RenderInterface_VK::Create_RenderPasses() noexcept
 		dependencies[1].dstSubpass = 0;
 		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-		dependencies[1].srcAccessMask = 0;
-		dependencies[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
 		VkRenderPassCreateInfo info = {};
@@ -2388,6 +2394,8 @@ void RenderInterface_VK::Create_Pipeline_Gradient()
 	desc.stencil_test_enable = VK_TRUE;
 	desc.stencil_state = Make_StencilState(VK_STENCIL_OP_KEEP, VK_STENCIL_OP_KEEP, VK_COMPARE_OP_ALWAYS, 0x0);
 	Create_GraphicsPipeline(m_p_device, desc, &m_pipelines[static_cast<int>(ProgramId::Gradient)]);
+	desc.stencil_state = Make_StencilState(VK_STENCIL_OP_KEEP, VK_STENCIL_OP_KEEP, VK_COMPARE_OP_EQUAL, 0x0);
+	Create_GraphicsPipeline(m_p_device, desc, &m_pipelines[static_cast<int>(ProgramId::Gradient_Stencil_Equal)]);
 }
 
 void RenderInterface_VK::Create_Pipeline_Creation()
@@ -2406,6 +2414,8 @@ void RenderInterface_VK::Create_Pipeline_Creation()
 	desc.stencil_test_enable = VK_TRUE;
 	desc.stencil_state = Make_StencilState(VK_STENCIL_OP_KEEP, VK_STENCIL_OP_KEEP, VK_COMPARE_OP_ALWAYS, 0x0);
 	Create_GraphicsPipeline(m_p_device, desc, &m_pipelines[static_cast<int>(ProgramId::Creation)]);
+	desc.stencil_state = Make_StencilState(VK_STENCIL_OP_KEEP, VK_STENCIL_OP_KEEP, VK_COMPARE_OP_EQUAL, 0x0);
+	Create_GraphicsPipeline(m_p_device, desc, &m_pipelines[static_cast<int>(ProgramId::Creation_Stencil_Equal)]);
 }
 
 void RenderInterface_VK::Create_Pipeline_Passthrough()
@@ -2874,33 +2884,43 @@ void RenderInterface_VK::Update_PendingForDeletion_Textures() noexcept
 	}
 }
 
-void RenderInterface_VK::Wait() noexcept
+bool RenderInterface_VK::Wait() noexcept
 {
-	RMLUI_VK_ASSERTMSG(m_p_device, "you must initialize device");
-	RMLUI_VK_ASSERTMSG(m_p_swapchain, "you must initialize swapchain");
-
-	constexpr uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-
+	constexpr uint64_t timeout = std::numeric_limits<uint64_t>::max();
 	m_semaphore_index_previous = m_semaphore_index;
-	m_semaphore_index = ((m_semaphore_index + 1) % kSwapchainBackBufferCount);
-
-	// slots that were never submitted have an unsignaled fence; waiting on those would deadlock
-	if (m_submitted_fences[m_semaphore_index_previous])
+	const uint32_t slot = m_semaphore_index_previous;
+	if (m_submitted_fences[slot])
 	{
-		VkResult status = vkWaitForFences(m_p_device, 1, &m_executed_fences[m_semaphore_index_previous], VK_TRUE, kMaxUint64);
-		RMLUI_VK_ASSERTMSG(status == VkResult::VK_SUCCESS, "failed to vkWaitForFences (see status)");
-
-		status = vkResetFences(m_p_device, 1, &m_executed_fences[m_semaphore_index_previous]);
-		RMLUI_VK_ASSERTMSG(status == VkResult::VK_SUCCESS, "failed to vkResetFences (see status)");
-
-		m_submitted_fences[m_semaphore_index_previous] = false;
+		VkResult status = vkWaitForFences(m_p_device, 1, &m_executed_fences[slot], VK_TRUE, timeout);
+		if (status != VK_SUCCESS)
+		{
+			Rml::Log::Message(Rml::Log::LT_ERROR, "[Vulkan] fence wait failed: %d", int(status));
+			return false;
+		}
+		status = vkResetFences(m_p_device, 1, &m_executed_fences[slot]);
+		if (status != VK_SUCCESS)
+		{
+			Rml::Log::Message(Rml::Log::LT_ERROR, "[Vulkan] fence reset failed: %d", int(status));
+			return false;
+		}
+		m_submitted_fences[slot] = false;
 	}
 
-	// the acquire happens AFTER the fence wait on purpose: the wait proves the GPU consumed this slot's
-	// image-available semaphore (its last wait completed), so re-signaling it here is always safe
-	auto status = vkAcquireNextImageKHR(m_p_device, m_p_swapchain, kMaxUint64, m_semaphores_image_available[m_semaphore_index_previous], nullptr,
+	const VkResult status = vkAcquireNextImageKHR(m_p_device, m_p_swapchain, timeout, m_semaphores_image_available[slot], nullptr,
 		&m_image_index);
-	RMLUI_VK_ASSERTMSG(status == VkResult::VK_SUCCESS, "failed to vkAcquireNextImageKHR (see status)");
+	if (status == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		RecreateSwapchain();
+		return false;
+	}
+	if (status != VK_SUCCESS && status != VK_SUBOPTIMAL_KHR)
+	{
+		Rml::Log::Message(Rml::Log::LT_ERROR, "[Vulkan] image acquisition failed: %d", int(status));
+		return false;
+	}
+	m_recreate_after_present = (status == VK_SUBOPTIMAL_KHR);
+	m_semaphore_index = (slot + 1) % kSwapchainBackBufferCount;
+	return true;
 }
 
 void RenderInterface_VK::Submit() noexcept
@@ -2910,7 +2930,7 @@ void RenderInterface_VK::Submit() noexcept
 	const VkSemaphore p_semaphores_wait[] = {m_semaphores_image_available[m_semaphore_index_previous]};
 	const VkSemaphore p_semaphores_signal[] = {m_semaphores_finished_render[m_image_index]};
 
-	VkFence p_fence = m_executed_fences[m_semaphore_index];
+	VkFence p_fence = m_executed_fences[m_semaphore_index_previous];
 
 	VkPipelineStageFlags submit_wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
@@ -2930,7 +2950,7 @@ void RenderInterface_VK::Submit() noexcept
 
 	RMLUI_VK_ASSERTMSG(status == VK_SUCCESS, "failed to vkQueueSubmit");
 
-	m_submitted_fences[m_semaphore_index] = true;
+	m_submitted_fences[m_semaphore_index_previous] = true;
 }
 
 void RenderInterface_VK::Present() noexcept
@@ -2948,10 +2968,11 @@ void RenderInterface_VK::Present() noexcept
 
 	VkResult status = vkQueuePresentKHR(m_p_queue_present, &info);
 
-	if (status != VK_SUCCESS)
+	if (status != VK_SUCCESS || m_recreate_after_present)
 	{
-		if (status == VK_ERROR_OUT_OF_DATE_KHR || status == VK_SUBOPTIMAL_KHR)
+		if (status == VK_ERROR_OUT_OF_DATE_KHR || status == VK_SUBOPTIMAL_KHR || (status == VK_SUCCESS && m_recreate_after_present))
 		{
+			m_recreate_after_present = false;
 			RecreateSwapchain();
 		}
 		else
@@ -3152,11 +3173,16 @@ void RenderInterface_VK::TransitionImageLayout(TextureHandleType* p_texture, VkI
 	p_texture->Set_Layout(new_layout);
 }
 
-void RenderInterface_VK::BeginFrame()
+bool RenderInterface_VK::BeginFrame()
 {
 	RMLUI_ZoneScopedN("Vulkan - BeginFrame");
 
-	Wait();
+	if (!m_surface_available)
+		return false;
+	if (!m_p_swapchain)
+		RecreateSwapchain();
+	if (!m_p_swapchain || !Wait())
+		return false;
 
 	// the slot's fence just passed, so entries that were retired a full swapchain cycle ago can't be referenced by the
 	// GPU anymore
@@ -3199,11 +3225,14 @@ void RenderInterface_VK::BeginFrame()
 	vkCmdSetViewport(m_p_current_command_buffer, 0, 1, &m_viewport);
 	vkCmdSetScissor(m_p_current_command_buffer, 0, 1, &m_scissor_original);
 	vkCmdSetStencilReference(m_p_current_command_buffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+	return true;
 }
 
 void RenderInterface_VK::EndFrame()
 {
 	RMLUI_ZoneScopedN("Vulkan - EndFrame");
+	if (!m_p_current_command_buffer)
+		return;
 
 	if (m_p_current_command_buffer == nullptr)
 		return;
@@ -3397,7 +3426,8 @@ void RenderInterface_VK::SetViewport(int width, int height)
 	// the device is drained before touching size-dependent resources, like the DX12 renderer's SetViewport (Flush)
 	Flush();
 
-	if (width > 0 && height > 0)
+	m_surface_available = width > 0 && height > 0;
+	if (m_surface_available)
 	{
 		m_width = width;
 		m_height = height;
@@ -3411,6 +3441,9 @@ void RenderInterface_VK::SetViewport(int width, int height)
 		Destroy_Swapchain();
 		m_p_swapchain = {};
 	}
+
+	if (!m_surface_available)
+		return;
 
 	VkExtent2D window_extent = GetValidSurfaceExtent();
 	if (window_extent.width == 0 || window_extent.height == 0)
@@ -3427,7 +3460,8 @@ void RenderInterface_VK::SetViewport(int width, int height)
 	m_height = window_extent.height;
 
 	Initialize_Swapchain(window_extent);
-	Create_ResourcesDependentOnSize(window_extent);
+	if (m_p_swapchain)
+		Create_ResourcesDependentOnSize(window_extent);
 }
 
 bool RenderInterface_VK::IsSwapchainValid()
@@ -4976,7 +5010,7 @@ void RenderInterface_VK::RenderShader(Rml::CompiledShaderHandle shader_handle, R
 		RMLUI_ASSERT(shader.stop_positions.size() == shader.stop_colors.size());
 		const int num_stops = (int)shader.stop_positions.size();
 
-		UseProgram(ProgramId::Gradient);
+		UseProgram(m_is_stencil_enabled && m_is_stencil_equal ? ProgramId::Gradient_Stencil_Equal : ProgramId::Gradient);
 		ConstantBufferType* p_cb = Get_ConstantBuffer(m_command_buffer_ring.Get_ActiveFrameIndex());
 		RMLUI_ASSERTMSG(p_cb, "failed to obtain constant buffer for gradient");
 
@@ -5027,7 +5061,7 @@ void RenderInterface_VK::RenderShader(Rml::CompiledShaderHandle shader_handle, R
 	}
 	case CompiledShaderType::Creation:
 	{
-		UseProgram(ProgramId::Creation);
+		UseProgram(m_is_stencil_enabled && m_is_stencil_equal ? ProgramId::Creation_Stencil_Equal : ProgramId::Creation);
 		ConstantBufferType* p_cb = Get_ConstantBuffer(m_command_buffer_ring.Get_ActiveFrameIndex());
 		RMLUI_ASSERTMSG(p_cb, "failed to obtain constant buffer for creation");
 
@@ -5105,37 +5139,38 @@ Rml::TextureHandle RenderInterface_VK::LoadTexture(Rml::Vector2i& texture_dimens
 
 	using Rml::byte;
 	Rml::UniquePtr<byte[]> buffer(new byte[buffer_size]);
-	file_interface->Read(buffer.get(), buffer_size, file_handle);
+	const size_t bytes_read = file_interface->Read(buffer.get(), buffer_size, file_handle);
 	file_interface->Close(file_handle);
+	if (bytes_read != buffer_size)
+		return false;
 
 	TGAHeader header;
 	memcpy(&header, buffer.get(), sizeof(TGAHeader));
 
-	int color_mode = header.bitsPerPixel / 8;
-	const size_t image_size = header.width * header.height * 4; // We always make 32bit textures
-
-	if (header.dataType != 2)
+	const int color_mode = header.bitsPerPixel / 8;
+	if (header.dataType != 2 || header.colourMapType != 0 || header.width <= 0 || header.height <= 0 ||
+		(header.bitsPerPixel != 24 && header.bitsPerPixel != 32))
 	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24/32bit uncompressed TGAs are supported.");
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Only valid 24/32bit uncompressed TGAs are supported.");
 		return false;
 	}
-
-	// Ensure we have at least 3 colors
-	if (color_mode < 3)
+	const size_t pixel_count = size_t(header.width) * size_t(header.height);
+	const size_t image_size = pixel_count * 4;
+	const size_t image_offset = sizeof(TGAHeader) + static_cast<unsigned char>(header.idLength);
+	if (image_offset > buffer_size || pixel_count > (buffer_size - image_offset) / size_t(color_mode))
 	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24 and 32bit textures are supported.");
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Truncated TGA image.");
 		return false;
 	}
-
-	const byte* image_src = buffer.get() + sizeof(TGAHeader);
+	const byte* image_src = buffer.get() + image_offset;
 	Rml::UniquePtr<byte[]> image_dest_buffer(new byte[image_size]);
 	byte* image_dest = image_dest_buffer.get();
 
 	// Targa is BGR, swap to RGB, flip Y axis, and convert to premultiplied alpha.
 	for (long y = 0; y < header.height; y++)
 	{
-		long read_index = y * header.width * color_mode;
-		long write_index = ((header.imageDescriptor & 32) != 0) ? read_index : (header.height - y - 1) * header.width * 4;
+		size_t read_index = size_t(y) * size_t(header.width) * size_t(color_mode);
+		size_t write_index = size_t(((header.imageDescriptor & 32) != 0) ? y : (header.height - y - 1)) * size_t(header.width) * 4;
 		for (long x = 0; x < header.width; x++)
 		{
 			image_dest[write_index] = image_src[read_index + 2];
@@ -5347,7 +5382,7 @@ bool RenderInterface_VK::CaptureScreen(int& width, int& height, int& num_compone
 
 	bool result = false;
 
-	if (info_readback_allocation.pMappedData)
+	if (info_readback_allocation.pMappedData && vmaInvalidateAllocation(m_p_allocator, p_readback_allocation, 0, VK_WHOLE_SIZE) == VK_SUCCESS)
 	{
 		const size_t source_num_components = 4;
 		const size_t target_num_components = 3;

@@ -335,7 +335,7 @@ public:
     mapped_type& at(const key_type& k)
     {
         auto i = lower_bound(k);
-        if (i == end() || cmp()(*i, k))
+        if (i == end() || cmp()(k, *i))
         {
             I_ITLIB_THROW_FLAT_MAP_OUT_OF_RANGE();
         }
@@ -346,7 +346,7 @@ public:
     const mapped_type& at(const key_type& k) const
     {
         auto i = lower_bound(k);
-        if (i == end() || cmp()(*i, k))
+        if (i == end() || cmp()(k, *i))
         {
             I_ITLIB_THROW_FLAT_MAP_OUT_OF_RANGE();
         }

@@ -15,6 +15,7 @@
 #include "Geometry.h"
 #include "MenuSource.h"
 #include <stack>
+#include <utility>
 
 namespace Rml {
 namespace Debugger {
@@ -42,6 +43,15 @@ DebuggerPlugin::DebuggerPlugin()
 
 DebuggerPlugin::~DebuggerPlugin()
 {
+	for (const auto& entry : {std::make_pair("debug-document", static_cast<ElementInstancer*>(debug_document_instancer.get())),
+			std::make_pair("debug-info", static_cast<ElementInstancer*>(info_element_instancer.get())),
+			std::make_pair("debug-log", static_cast<ElementInstancer*>(log_element_instancer.get())),
+			std::make_pair("debug-data-models", static_cast<ElementInstancer*>(data_explorer_element_instancer.get())),
+			std::make_pair("debug-hook", static_cast<ElementInstancer*>(hook_element_instancer.get()))})
+	{
+		if (entry.second && Factory::GetElementInstancer(entry.first) == entry.second)
+			Factory::RegisterElementInstancer(entry.first, nullptr);
+	}
 	instance = nullptr;
 }
 
@@ -53,12 +63,15 @@ bool DebuggerPlugin::Initialise(Context* context)
 	if (!LoadFont())
 	{
 		Log::Message(Log::LT_ERROR, "Failed to initialise debugger, unable to load font.");
+		Geometry::SetContext(nullptr);
 		return false;
 	}
 
 	if (!LoadMenuElement() || !LoadInfoElement() || !LoadLogElement() || !LoadDataExplorerElement())
 	{
 		Log::Message(Log::LT_ERROR, "Failed to initialise debugger, error while load debugger elements.");
+		ReleaseElements();
+		Geometry::SetContext(nullptr);
 		return false;
 	}
 
@@ -110,6 +123,9 @@ bool DebuggerPlugin::SetContext(Context* context)
 
 void DebuggerPlugin::SetVisible(bool visibility)
 {
+	if (!menu_element)
+		return;
+
 	if (visibility)
 		menu_element->SetProperty(PropertyId::Visibility, Property(Style::Visibility::Visible));
 	else
@@ -118,7 +134,7 @@ void DebuggerPlugin::SetVisible(bool visibility)
 
 bool DebuggerPlugin::IsVisible()
 {
-	return menu_element->IsVisible();
+	return menu_element && menu_element->IsVisible();
 }
 
 void DebuggerPlugin::Render()
@@ -169,8 +185,6 @@ void DebuggerPlugin::OnShutdown()
 	// Release the elements before we leak track, this ensures the debugger hook has been cleared
 	// and that we don't try send the messages to the debug log window
 	ReleaseElements();
-
-	hook_element_instancer.reset();
 
 	delete this;
 }

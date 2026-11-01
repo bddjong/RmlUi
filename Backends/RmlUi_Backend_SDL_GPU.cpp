@@ -198,7 +198,7 @@ void Backend::RequestExit()
 	data->running = false;
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
 
@@ -206,7 +206,7 @@ void Backend::BeginFrame()
 	if (!data->command_buffer)
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to acquire command buffer: %s", SDL_GetError());
-		return;
+		return false;
 	}
 
 	SDL_GPUTexture* swapchain_texture;
@@ -215,14 +215,16 @@ void Backend::BeginFrame()
 	if (!SDL_WaitAndAcquireGPUSwapchainTexture(data->command_buffer, data->window, &swapchain_texture, &width, &height))
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to acquire swapchain texture: %s", SDL_GetError());
-		return;
+		SDL_CancelGPUCommandBuffer(data->command_buffer);
+		data->command_buffer = nullptr;
+		return false;
 	}
 
 	if (!swapchain_texture || !width || !height)
 	{
 		// Not an error. Happens on minimize
 		SDL_CancelGPUCommandBuffer(data->command_buffer);
-		return;
+		return false;
 	}
 
 	// Do your normal draw operations (make sure you clear the swapchain texture)
@@ -234,6 +236,7 @@ void Backend::BeginFrame()
 	SDL_EndGPURenderPass(render_pass);
 
 	data->render_interface.BeginFrame(data->command_buffer, swapchain_texture, width, height);
+	return true;
 }
 
 void Backend::PresentFrame()

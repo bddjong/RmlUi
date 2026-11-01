@@ -13,6 +13,7 @@
 #include "ComputeProperty.h"
 #include "ElementStyle.h"
 #include "TransformUtilities.h"
+#include <cmath>
 
 namespace Rml {
 
@@ -182,7 +183,7 @@ static NumericValue InterpolateNumericValue(NumericValue v0, NumericValue v1, fl
 	if (Any(v0.unit & Unit::LENGTH) && Any(v1.unit & Unit::LENGTH))
 	{
 		float f0 = element.ResolveLength(v0);
-		float f1 = element.ResolveLength(v0);
+		float f1 = element.ResolveLength(v1);
 		return NumericValue{Mix(f0, f1, alpha), Unit::PX};
 	}
 
@@ -314,6 +315,8 @@ static Property InterpolateProperties(const Property& p0, const Property& p1, fl
 			EffectDeclarationView d1 = GetEffectDeclarationView(ptr1->list, i, element);
 
 			const EffectDeclarationView& declaration = (p0_bigger ? d0 : d1);
+			if (!declaration)
+				return p_discrete;
 			list.push_back(DecoratorDeclaration{*declaration.type, static_cast<DecoratorInstancer*>(declaration.instancer), PropertyDictionary(),
 				declaration.paint_area});
 
@@ -647,6 +650,11 @@ bool ElementAnimation::InternalAddKey(float time, const Property& in_property, E
 		return false;
 	}
 
+	if ((in_property.unit == Unit::TRANSFORM && in_property.value.GetType() != Variant::TRANSFORMPTR) ||
+		(in_property.unit == Unit::DECORATOR && in_property.value.GetType() != Variant::DECORATORSPTR) ||
+		(in_property.unit == Unit::FILTER && in_property.value.GetType() != Variant::FILTERSPTR))
+		return false;
+
 	keys.emplace_back(time, in_property, tween);
 	Property& property = keys.back().property;
 	bool result = true;
@@ -755,20 +763,31 @@ Property ElementAnimation::UpdateAndGetProperty(double world_time, Element& elem
 
 	if (time_since_iteration_start >= duration)
 	{
-		// Next iteration
-		current_iteration += 1;
-
-		if (num_iterations == -1 || (current_iteration >= 0 && current_iteration < num_iterations))
+		if (duration <= 0.f)
 		{
-			time_since_iteration_start -= duration;
-
-			if (alternate_direction)
-				reverse_direction = !reverse_direction;
+			animation_complete = (num_iterations != -1);
+			time_since_iteration_start = 0.f;
 		}
 		else
 		{
-			animation_complete = true;
-			time_since_iteration_start = duration;
+			const double elapsed_iterations = std::floor(double(time_since_iteration_start) / double(duration));
+			const int remaining = (num_iterations == -1 ? 0 : num_iterations - current_iteration);
+			if (num_iterations != -1 && elapsed_iterations >= remaining)
+			{
+				if (alternate_direction && remaining > 0 && (remaining - 1) % 2 != 0)
+					reverse_direction = !reverse_direction;
+				current_iteration = num_iterations;
+				animation_complete = true;
+				time_since_iteration_start = duration;
+			}
+			else
+			{
+				if (alternate_direction && std::fmod(elapsed_iterations, 2.0) >= 1.0)
+					reverse_direction = !reverse_direction;
+				if (num_iterations != -1)
+					current_iteration += int(elapsed_iterations);
+				time_since_iteration_start = float(std::fmod(double(time_since_iteration_start), double(duration)));
+			}
 		}
 	}
 

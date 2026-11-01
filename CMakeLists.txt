@@ -192,8 +192,15 @@ if(RMLUI_IS_ROOT_PROJECT)
 	# Export build tree targets if RmlUi is the top-level project.
 	export(EXPORT RmlUiTargets
 		NAMESPACE RmlUi::
-		FILE RmlUiConfig.cmake
+		FILE RmlUiTargets.cmake
 	)
+	configure_file("${CMAKE_CURRENT_SOURCE_DIR}/CMake/RmlUiConfig.cmake.in"
+		"${CMAKE_CURRENT_BINARY_DIR}/RmlUiConfig.cmake" @ONLY)
+	configure_file("${CMAKE_CURRENT_SOURCE_DIR}/CMake/Dependencies.cmake"
+		"${CMAKE_CURRENT_BINARY_DIR}/Dependencies.cmake" COPYONLY)
+	file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/CMake/Modules" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+	configure_file("${CMAKE_CURRENT_BINARY_DIR}/install/RmlUiConfigVersion.cmake"
+		"${CMAKE_CURRENT_BINARY_DIR}/RmlUiConfigVersion.cmake" COPYONLY)
 endif()
 
 include("CMake/PackageUtilities.cmake")

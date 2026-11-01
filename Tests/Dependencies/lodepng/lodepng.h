@@ -270,6 +270,9 @@ struct LodePNGDecompressSettings {
   unsigned ignore_adler32; /*if 1, continue and don't give an error message if the Adler32 checksum is corrupted*/
   unsigned ignore_nlen; /*ignore complement of len checksum in uncompressed blocks*/
 
+  /*Custom decoders control their own allocations. PNG IDAT output is checked
+  against the expected size after the callback returns; callbacks must enforce
+  their own output limits to prevent excessive allocation.*/
   /*use custom zlib decoder instead of built in one (default: null)*/
   unsigned (*custom_zlib)(unsigned char**, size_t*,
                           const unsigned char*, size_t,
@@ -401,7 +404,8 @@ In detail, it returns true only if it's a color type with alpha, or has a palett
 or if "key_defined" is true.
 */
 unsigned lodepng_can_have_alpha(const LodePNGColorMode* info);
-/*Returns the byte size of a raw image buffer with given width, height and color mode*/
+/*Returns the byte size of a raw image buffer with given width, height and color mode.
+Caller must ensure the size is representable in size_t; this function has no error return.*/
 size_t lodepng_get_raw_size(unsigned w, unsigned h, const LodePNGColorMode* color);
 
 #ifdef LODEPNG_COMPILE_ANCILLARY_CHUNKS
@@ -773,6 +777,7 @@ unsigned lodepng_inspect(unsigned* w, unsigned* h,
                          const unsigned char* in, size_t insize);
 #endif /*LODEPNG_COMPILE_DECODER*/
 
+#ifdef LODEPNG_COMPILE_DECODER
 /*
 Reads one metadata chunk (other than IHDR) of the PNG file and outputs what it
 read in the state. Returns error code on failure.
@@ -787,6 +792,7 @@ there is a PLTE chunk, that one must be inspected before tRNS or bKGD.
 */
 unsigned lodepng_inspect_chunk(LodePNGState* state, size_t pos,
                                const unsigned char* in, size_t insize);
+#endif /*LODEPNG_COMPILE_DECODER*/
 
 #ifdef LODEPNG_COMPILE_ENCODER
 /*This function allocates the out buffer with standard malloc and stores the size in *outsize.*/
@@ -968,6 +974,7 @@ unsigned lodepng_save_file(const unsigned char* buffer, size_t buffersize, const
 /* The LodePNG C++ wrapper uses std::vectors instead of manually allocated memory buffers. */
 namespace lodepng {
 #ifdef LODEPNG_COMPILE_PNG
+#if defined(LODEPNG_COMPILE_DECODER) || defined(LODEPNG_COMPILE_ENCODER)
 class State : public LodePNGState {
   public:
     State();
@@ -975,6 +982,7 @@ class State : public LodePNGState {
     ~State();
     State& operator=(const State& other);
 };
+#endif
 
 #ifdef LODEPNG_COMPILE_DECODER
 /* Same as other lodepng::decode, but using a State for more settings and information. */

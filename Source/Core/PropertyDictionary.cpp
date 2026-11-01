@@ -93,13 +93,13 @@ const UnorderedMap<String, Property>& PropertyDictionary::GetCustomProperties() 
 void PropertyDictionary::Import(const PropertyDictionary& other, int property_specificity)
 {
 	for (const auto& [id, property] : other.properties)
-		SetProperty(id, property, property_specificity > 0 ? property_specificity : property.specificity);
+		SetProperty(id, property, property_specificity >= 0 ? property_specificity : property.specificity);
 
 	for (const auto& [name, property] : other.custom_properties)
-		SetCustomProperty(name, property, property_specificity > 0 ? property_specificity : property.specificity);
+		SetCustomProperty(name, property, property_specificity >= 0 ? property_specificity : property.specificity);
 
 	for (const auto& [id, property] : other.var_shorthands)
-		SetVarShorthand(id, property, property_specificity > 0 ? property_specificity : property.specificity);
+		SetVarShorthand(id, property, property_specificity >= 0 ? property_specificity : property.specificity);
 }
 
 void PropertyDictionary::Merge(const PropertyDictionary& other, int specificity_offset)

@@ -16,6 +16,8 @@ macro(report_dependency_not_found friendly_name package_name target_name)
 				"create an ALIAS target to offer an alternative name for a CMake target."
 			)
 	endif()
+	set(RmlUi_FOUND FALSE)
+	set(RmlUi_NOT_FOUND_MESSAGE "${friendly_name} dependency target ${target_name} could not be found.")
 	return()
 endmacro()
 macro(report_dependency_found_or_error friendly_name package_name target_name)
@@ -32,5 +34,8 @@ endmacro()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/Modules")
 
 include("${CMAKE_CURRENT_LIST_DIR}/Dependencies.cmake")
+if(DEFINED RmlUi_FOUND AND NOT RmlUi_FOUND)
+	return()
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/RmlUiTargets.cmake")

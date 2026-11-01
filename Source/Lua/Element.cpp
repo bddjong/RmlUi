@@ -72,7 +72,7 @@ int ElementAddEventListener(lua_State* L, Element* obj)
 int ElementAppendChild(lua_State* L, Element* obj)
 {
 	ElementPtr* element = LuaType<ElementPtr>::check(L, 1);
-	if (*element)
+	if (element && *element)
 	{
 		Element* child = obj->AppendChild(std::move(*element));
 		LuaType<Element>::push(L, child, false);
@@ -207,7 +207,7 @@ int ElementInsertBefore(lua_State* L, Element* obj)
 {
 	ElementPtr* element = LuaType<ElementPtr>::check(L, 1);
 	Element* adjacent = LuaType<Element>::check(L, 2);
-	if (*element)
+	if (element && *element)
 	{
 		Element* inserted = obj->InsertBefore(std::move(*element), adjacent);
 		LuaType<Element>::push(L, inserted, false);
@@ -246,11 +246,14 @@ int ElementReplaceChild(lua_State* L, Element* obj)
 {
 	ElementPtr* inserted = LuaType<ElementPtr>::check(L, 1);
 	Element* replaced = LuaType<Element>::check(L, 2);
-	if (*inserted)
+	if (inserted && *inserted)
 		lua_pushboolean(L, static_cast<bool>(obj->ReplaceChild(std::move(*inserted), replaced)));
 	else
+	{
 		Log::Message(Log::LT_WARNING, "Could not replace child in element '%s', as the child was null. Was it already moved from?",
 			obj->GetAddress().c_str());
+		lua_pushboolean(L, false);
+	}
 	return 1;
 }
 
@@ -283,7 +286,7 @@ int ElementGetAttrattributes(lua_State* L)
 	Element* ele = LuaType<Element>::check(L, 1);
 	RMLUI_CHECK_OBJ(ele);
 	ElementAttributesProxy* proxy = new ElementAttributesProxy();
-	proxy->owner = ele;
+	proxy->owner = ele->GetObserverPtr();
 	LuaType<ElementAttributesProxy>::push(L, proxy, true);
 	return 1;
 }
@@ -293,7 +296,7 @@ int ElementGetAttrchild_nodes(lua_State* L)
 	Element* ele = LuaType<Element>::check(L, 1);
 	RMLUI_CHECK_OBJ(ele);
 	ElementChildNodesProxy* ecnp = new ElementChildNodesProxy();
-	ecnp->owner = ele;
+	ecnp->owner = ele->GetObserverPtr();
 	LuaType<ElementChildNodesProxy>::push(L, ecnp, true);
 	return 1;
 }
@@ -502,7 +505,7 @@ int ElementGetAttrstyle(lua_State* L)
 	Element* ele = LuaType<Element>::check(L, 1);
 	RMLUI_CHECK_OBJ(ele);
 	ElementStyleProxy* prox = new ElementStyleProxy();
-	prox->owner = ele;
+	prox->owner = ele->GetObserverPtr();
 	LuaType<ElementStyleProxy>::push(L, prox, true);
 	return 1;
 }

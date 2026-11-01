@@ -25,6 +25,12 @@ bool CaptureScreenshot(const Rml::String& filename, int clip_width)
 	if (clip_width == 0)
 		clip_width = image_orig.width;
 
+	if (clip_width < 0 || clip_width > image_orig.width)
+	{
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Screenshot clip width exceeds the captured screen.");
+		return false;
+	}
+
 	// Create a new image flipped vertically, and clipped to the given clip width.
 	Image image;
 	image.width = clip_width;
@@ -80,6 +86,7 @@ ComparisonResult CompareScreenToPreviousCapture(Rml::RenderInterface* render_int
 	if (lodepng_result)
 	{
 		ComparisonResult result;
+		result.skipped = false;
 		result.success = false;
 		result.error_msg =
 			Rml::CreateString("Could not read the captured screenshot from %s: %s", input_path.c_str(), lodepng_error_text(lodepng_result));
@@ -91,6 +98,7 @@ ComparisonResult CompareScreenToPreviousCapture(Rml::RenderInterface* render_int
 	if (!screen.data)
 	{
 		ComparisonResult result;
+		result.skipped = false;
 		result.success = false;
 		result.error_msg = "Could not capture screenshot of window.";
 		return result;
@@ -113,6 +121,7 @@ ComparisonResult CompareScreenToPreviousCapture(Rml::RenderInterface* render_int
 	if (screen.width < (int)w_ref || screen.height < (int)h_ref)
 	{
 		ComparisonResult result;
+		result.skipped = false;
 		result.success = false;
 		result.error_msg = "Test comparison failed. The screen is smaller than the reference image in one or both dimensions.";
 		return result;

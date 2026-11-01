@@ -403,6 +403,8 @@ void TestNavigator::StartTestSuiteIteration(IterationState new_iteration_state)
 	source_state = SourceType::None;
 
 	TestSuite& suite = CurrentSuite();
+	if (suite.GetNumFilteredTests() == 0)
+		return;
 
 	if (new_iteration_state == IterationState::Comparison)
 	{
@@ -550,12 +552,11 @@ void TestNavigator::StopTestSuiteIteration()
 			Rml::Log::Message(Rml::Log::LT_ERROR, "Failed writing comparison log output to file %s", log_path.c_str());
 	}
 
+	suite.SetIndex(iteration_initial_index);
 	iteration_index = -1;
 	iteration_initial_index = -1;
 	iteration_wait_frames = -1;
 	iteration_state = IterationState::None;
-
-	suite.SetIndex(iteration_initial_index);
 	LoadActiveTest();
 }
 

@@ -8,6 +8,8 @@
 #include <RmlUi/Core/Log.h>
 #include <RmlUi/Core/Profiling.h>
 #include <optional>
+#include <climits>
+#include <vector>
 
 #ifdef RMLUI_USE_STB_IMAGE_LOADER
 	#define STB_IMAGE_IMPLEMENTATION
@@ -41,17 +43,29 @@ public:
 			return false;
 		}
 
-		// Load the file through stb_image
-		texture_data = stbi_load_from_file((FILE*)file_handle, &texture_width, &texture_height, &num_channels, 0);
+		file_interface->Seek(file_handle, 0, SEEK_END);
+		const size_t file_size = file_interface->Tell(file_handle);
+		file_interface->Seek(file_handle, 0, SEEK_SET);
+		if (file_size == 0 || file_size > INT_MAX)
+		{
+			file_interface->Close(file_handle);
+			return false;
+		}
+		std::vector<unsigned char> file_data(file_size);
+		const size_t bytes_read = file_interface->Read(file_data.data(), file_size, file_handle);
+		file_interface->Close(file_handle);
+		if (bytes_read != file_size)
+			return false;
+		texture_data = stbi_load_from_memory(file_data.data(), int(file_size), &texture_width, &texture_height, &num_channels, 4);
 
 		// If the file data is correct
 		if (texture_data != nullptr)
 		{
 			// Compute number of elements in texture
-			image_size_bytes = texture_width * texture_height * num_channels;
+			image_size_bytes = size_t(texture_width) * size_t(texture_height) * 4;
 
 			// Pre-multiply the data
-			for (int i = 0; i < image_size_bytes; i += 4)
+			for (size_t i = 0; i < image_size_bytes; i += 4)
 			{
 				texture_data[i + 0] = (uint8_t)((texture_data[i + 0] * texture_data[i + 3]) / 255);
 				texture_data[i + 1] = (uint8_t)((texture_data[i + 1] * texture_data[i + 3]) / 255);
@@ -201,7 +215,16 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 	stbi_convert_iphone_png_to_rgb(true);
 #endif
 
-	data->render_interface.emplace(data->device_resources.pd3dDevice);
+	try
+	{
+		data->render_interface.emplace(data->device_resources.pd3dDevice);
+	}
+	catch (const DX11InitializationError&)
+	{
+		data->window_handle = window_handle;
+		Shutdown();
+		return false;
+	}
 
 	data->window_handle = window_handle;
 	data->system_interface.SetWindow(window_handle);
@@ -303,7 +326,7 @@ void Backend::RequestExit()
 	data->running = false;
 }
 
-void Backend::BeginFrame()
+bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
 
@@ -324,6 +347,7 @@ void Backend::BeginFrame()
 		data->render_interface->Clear(data->device_resources.pMainRenderTargetView);
 		data->render_interface->BeginFrame();
 	}
+	return data->window_dimensions != Rml::Vector2i{0, 0};
 }
 
 void Backend::PresentFrame()

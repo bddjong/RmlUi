@@ -8,6 +8,36 @@
 
 using namespace Rml;
 
+TEST_CASE("url.reset_and_empty_query_components")
+{
+	URL url("http://user:pass@host:42/old.txt?old=value");
+	CHECK(url.SetURL("new?&=&&key=value&"));
+	CHECK(url.GetLogin().empty());
+	CHECK(url.GetPassword().empty());
+	CHECK(url.GetHost().empty());
+	CHECK(url.GetParameters().count("old") == 0);
+	CHECK(url.GetParameters().at("key") == "value");
+	url.ClearParameters();
+	CHECK(url.GetURL() == "new");
+	CHECK(url.SetURL("http://host/old.txt?q=x"));
+	CHECK(url.SetURL("http://other"));
+	url.SetParameter("new", "value");
+	CHECK(url.GetURL().find("old.txt") == String::npos);
+	CHECK(url.GetParameters().count("q") == 0);
+}
+
+TEST_CASE("url.percent_encoding_roundtrip")
+{
+	const String bytes("a\0\xffz", 4);
+	CHECK(URL::UrlEncode(bytes) == "a%00%FFz");
+	CHECK(URL::UrlDecode(URL::UrlEncode(bytes)) == bytes);
+	CHECK(URL::UrlDecode("%") == "%");
+	CHECK(URL::UrlDecode("%A") == "%A");
+	CHECK(URL::UrlDecode("%Q1%2Z") == "%Q1%2Z");
+	URL url("path?value=a%00b");
+	CHECK(url.GetQueryString() == "value=a%00b");
+}
+
 class BasicSystemInterface : public Rml::SystemInterface {
 public:
 	double GetElapsedTime() override { return 0.0; }

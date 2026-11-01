@@ -21,6 +21,7 @@ add_executable(${TARGET_NAME}
 	ElementStyle.cpp
 	EventListener.cpp
 	Filter.cpp
+	FontEffectLimits.cpp
 	FlexFormatting.cpp
 	Layout.cpp
 	Localization.cpp
@@ -31,6 +32,7 @@ add_executable(${TARGET_NAME}
 	Navigation.cpp
 	Properties.cpp
 	PropertySpecification.cpp
+	RenderInterfaceCompatibility.cpp
 	Selectors.cpp
 	Specificity_Basic.cpp
 	Specificity_MediaQuery.cpp
@@ -38,6 +40,8 @@ add_executable(${TARGET_NAME}
 	StringUtilities.cpp
 	StyleSheetParser.cpp
 	Template.cpp
+	TextureReentrancy.cpp
+	UniqueRenderResource.cpp
 	URL.cpp
 	Variant.cpp
 	XMLParser.cpp
@@ -52,6 +56,11 @@ target_link_libraries(${TARGET_NAME} PRIVATE
 	doctest::doctest
 	trompeloeil::trompeloeil
 )
+
+if(RMLUI_LUA_BINDINGS)
+	target_sources(${TARGET_NAME} PRIVATE LuaEventLifetime.cpp)
+	target_link_libraries(${TARGET_NAME} PRIVATE rmlui_lua)
+endif()
 
 if(NOT EMSCRIPTEN)
 	doctest_discover_tests(${TARGET_NAME})

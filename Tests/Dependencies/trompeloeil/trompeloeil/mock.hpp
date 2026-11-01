@@ -2866,8 +2866,8 @@ template <typename T>
     using call_matcher_base<Sig>::loc;
 
 #if TROMPELOEIL_GCC && TROMPELOEIL_GCC_VERSION >= 70000 && TROMPELOEIL_GCC_VERSION < 80000
-#pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
 #endif
     template <typename ... U>
     call_matcher(
@@ -3818,8 +3818,8 @@ template <typename T>
 // are situations when the wildcard _ uses conversion when creating an
 // expectation. It would be much better if the warning could be suppressed only
 // for that type. See https://github.com/rollbear/trompeloeil/issues/293
-#pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
 #endif
 #define TROMPELOEIL_REQUIRE_CALL_V_LAMBDA(obj, func, obj_s, func_s, ...)       \
   [&]                                                                          \

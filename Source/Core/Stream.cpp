@@ -53,8 +53,19 @@ size_t Stream::Read(Stream* stream, size_t bytes) const
 		size_t bytes_read = this->Read(buffer, Math::Min(READ_BLOCK_SIZE, bytes - total_bytes_read));
 		if (bytes_read < 1)
 			return total_bytes_read;
-		stream->Write(buffer, bytes_read);
-		total_bytes_read += bytes_read;
+		size_t written = 0;
+		while (written < bytes_read)
+		{
+			size_t n = stream->Write(buffer + written, bytes_read - written);
+			if (n == 0)
+			{
+				// Keep the source at the first byte not accepted by the destination, when seekable.
+				Seek(-static_cast<long>(bytes_read - written), SEEK_CUR);
+				return total_bytes_read + written;
+			}
+			written += n;
+		}
+		total_bytes_read += written;
 	}
 	return total_bytes_read;
 }

@@ -26,7 +26,7 @@ bool FileInterface::LoadFile(const String& path, String& out_data)
 
 	out_data = String(length, 0);
 
-	const size_t read_length = Read(&out_data[0], length, handle);
+	const size_t read_length = length ? Read(&out_data[0], length, handle) : 0;
 
 	if (length != read_length)
 	{
@@ -35,7 +35,9 @@ bool FileInterface::LoadFile(const String& path, String& out_data)
 
 	Close(handle);
 
-	return true;
+	if (length != read_length)
+		out_data.clear();
+	return length == read_length;
 }
 
 } // namespace Rml

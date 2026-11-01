@@ -378,7 +378,7 @@ bool Factory::InstanceElementText(Element* parent, const String& in_text)
 		stream->Write(close_tag.c_str(), close_tag.size());
 		stream->Seek(0, SEEK_SET);
 
-		InstanceElementStream(parent, stream.get());
+		return InstanceElementStream(parent, stream.get());
 	}
 	else
 	{
@@ -421,9 +421,13 @@ bool Factory::InstanceElementText(Element* parent, const String& in_text)
 
 bool Factory::InstanceElementStream(Element* parent, Stream* stream)
 {
+	const int original_children = parent->GetNumChildren();
 	XMLParser parser(parent);
-	parser.Parse(stream);
-	return true;
+	if (parser.Parse(stream))
+		return true;
+	while (parent->GetNumChildren() > original_children)
+		parent->RemoveChild(parent->GetChild(original_children));
+	return false;
 }
 
 ElementPtr Factory::InstanceDocumentStream(Context* context, Stream* stream, const String& document_base_tag)
@@ -448,7 +452,8 @@ ElementPtr Factory::InstanceDocumentStream(Context* context, Stream* stream, con
 	document->context = context;
 
 	XMLParser parser(element.get());
-	parser.Parse(stream);
+	if (!parser.Parse(stream))
+		return nullptr;
 
 	return element;
 }
@@ -507,7 +512,8 @@ SharedPtr<StyleSheetContainer> Factory::InstanceStyleSheetString(const String& s
 SharedPtr<StyleSheetContainer> Factory::InstanceStyleSheetFile(const String& file_name)
 {
 	auto file_stream = MakeUnique<StreamFile>();
-	file_stream->Open(file_name);
+	if (!file_stream->Open(file_name))
+		return nullptr;
 	return InstanceStyleSheetStream(file_stream.get());
 }
 

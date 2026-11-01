@@ -15,6 +15,9 @@ class RenderManager;
 class RMLUICORE_API CompiledFilter final : public UniqueRenderResource<CompiledFilter, CompiledFilterHandle, CompiledFilterHandle(0)> {
 public:
 	CompiledFilter() = default;
+	~CompiledFilter() noexcept { Release(); }
+	CompiledFilter(CompiledFilter&&) noexcept = default;
+	CompiledFilter& operator=(CompiledFilter&&) noexcept = default;
 
 	void AddHandleTo(FilterHandleList& list);
 
@@ -33,6 +36,9 @@ private:
 class RMLUICORE_API CompiledShader final : public UniqueRenderResource<CompiledShader, CompiledShaderHandle, CompiledShaderHandle(0)> {
 public:
 	CompiledShader() = default;
+	~CompiledShader() noexcept { Release(); }
+	CompiledShader(CompiledShader&&) noexcept = default;
+	CompiledShader& operator=(CompiledShader&&) noexcept = default;
 
 	void Release();
 

@@ -1,5 +1,4 @@
 #include "EventParametersProxy.h"
-#include "Pairs.h"
 #include <RmlUi/Core/Dictionary.h>
 #include <RmlUi/Core/Variant.h>
 #include <RmlUi/Lua/Utilities.h>
@@ -25,10 +24,11 @@ int EventParametersProxy__index(lua_State* L)
 	{
 		EventParametersProxy* obj = LuaType<EventParametersProxy>::check(L, 1);
 		RMLUI_CHECK_OBJ(obj);
+		RMLUI_CHECK_OBJ(obj->state->event);
 		const char* key = lua_tostring(L, 2);
-		auto it = obj->owner->GetParameters().find(key);
-		const Variant* param = (it == obj->owner->GetParameters().end() ? nullptr : &it->second);
-		if (obj->owner->GetId() == EventId::Tabchange && std::strcmp(key, "tab_index") == 0 && param && param->GetType() == Variant::Type::INT)
+		auto it = obj->state->event->GetParameters().find(key);
+		const Variant* param = (it == obj->state->event->GetParameters().end() ? nullptr : &it->second);
+		if (obj->state->event->GetId() == EventId::Tabchange && std::strcmp(key, "tab_index") == 0 && param && param->GetType() == Variant::Type::INT)
 		{
 			PushIndex(L, param->Get<int>());
 		}
@@ -44,7 +44,17 @@ int EventParametersProxy__pairs(lua_State* L)
 {
 	EventParametersProxy* obj = LuaType<EventParametersProxy>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	return MakePairs(L, obj->owner->GetParameters());
+	RMLUI_CHECK_OBJ(obj->state->event);
+	lua_getglobal(L, "next");
+	lua_newtable(L);
+	for (const auto& parameter : obj->state->event->GetParameters())
+	{
+		lua_pushlstring(L, parameter.first.c_str(), parameter.first.size());
+		PushVariant(L, &parameter.second);
+		lua_rawset(L, -3);
+	}
+	lua_pushnil(L);
+	return 3;
 }
 
 RegType<EventParametersProxy> EventParametersProxyMethods[] = {

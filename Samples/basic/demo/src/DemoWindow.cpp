@@ -58,10 +58,13 @@ bool DemoWindow::Initialize(const Rml::String& title, Rml::Context* context)
 			auto file_interface = Rml::GetFileInterface();
 			Rml::FileHandle handle = file_interface->Open("assets/rml.rcss");
 
-			size_t length = file_interface->Length(handle);
-			style_sheet_content.resize(length);
-			file_interface->Read((void*)style_sheet_content.data(), length, handle);
-			file_interface->Close(handle);
+			if (handle)
+			{
+				size_t length = file_interface->Length(handle);
+				style_sheet_content.resize(length);
+				file_interface->Read((void*)style_sheet_content.data(), length, handle);
+				file_interface->Close(handle);
+			}
 
 			style_sheet_content += g_sandbox_default_rcss;
 		}

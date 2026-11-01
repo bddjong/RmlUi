@@ -1,5 +1,6 @@
 #include "../../../Include/RmlUi/Core/Elements/ElementFormControl.h"
 #include "../../../Include/RmlUi/Core/ComputedValues.h"
+#include "../../../Include/RmlUi/Core/Context.h"
 
 namespace Rml {
 
@@ -49,15 +50,24 @@ void ElementFormControl::OnAttributeChange(const ElementAttributes& changed_attr
 		bool is_disabled = IsDisabled();
 		SetPseudoClass("disabled", is_disabled);
 
-		// Disable focus when element is disabled. This will also prevent click
-		// events (when originating from user inputs, see Context) to reach the element.
+		// Focus and input eligibility are checked separately from authored styles.
 		if (is_disabled)
 		{
-			SetProperty(PropertyId::Focus, Property(Style::Focus::None));
-			Blur();
+			if (Context* context = GetContext())
+			{
+				for (Element* focused = context->GetFocusElement(); focused; focused = focused->GetParentNode())
+				{
+					if (focused == this)
+					{
+						if (context->GetFocusElement() == this)
+							Blur();
+						else if (GetParentNode())
+							GetParentNode()->Focus();
+						break;
+					}
+				}
+			}
 		}
-		else
-			RemoveProperty(PropertyId::Focus);
 	}
 }
 

@@ -259,6 +259,7 @@ bool DecoratorTiledInstancer::GetTileProperties(DecoratorTiled::Tile* tiles, Tex
 	RMLUI_ASSERT(num_tiles_and_textures == tile_property_ids.size());
 
 	String previous_texture_name;
+	String previous_texture_source;
 	Texture previous_texture;
 
 	for (size_t i = 0; i < num_tiles_and_textures; i++)
@@ -296,18 +297,20 @@ bool DecoratorTiledInstancer::GetTileProperties(DecoratorTiled::Tile* tiles, Tex
 		{
 			// No sprite found, so assume that the name is an image source. Since the common use case is to specify the
 			// same texture for all tiles, check the previous texture first before fetching from the global database.
-			if (texture_name == previous_texture_name)
+			const String& texture_source = src_property->source ? src_property->source->path : String();
+			if (texture_name == previous_texture_name && texture_source == previous_texture_source)
 			{
 				texture = previous_texture;
 			}
 			else
 			{
-				texture = instancer_interface.GetTexture(texture_name);
+				texture = instancer_interface.GetTexture(texture_name, *src_property);
 
 				if (!texture)
 					return false;
 
 				previous_texture_name = texture_name;
+				previous_texture_source = texture_source;
 				previous_texture = texture;
 			}
 		}

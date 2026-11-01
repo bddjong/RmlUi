@@ -53,7 +53,7 @@ void ElementLottie::OnUpdate()
 
 	double _unused;
 	const double frame_duration = 1.0 / animation->frameRate();
-	const double delay = std::modf((t - time_animation_start) / frame_duration, &_unused) * frame_duration;
+	const double delay = (1.0 - std::modf((t - time_animation_start) / frame_duration, &_unused)) * frame_duration;
 	if (IsVisible(true))
 	{
 		if (Context* ctx = GetContext())

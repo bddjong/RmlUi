@@ -55,13 +55,13 @@ void ElementSVG::OnAttributeChange(const ElementAttributes& changed_attributes)
 {
 	Element::OnAttributeChange(changed_attributes);
 
-	if (changed_attributes.count("src") || changed_attributes.count("crop-to-content"))
+	// Inline SVG source includes root attributes, so any attribute may change it.
+	if (GetAttribute<String>("src", "").empty() || changed_attributes.count("src") || changed_attributes.count("crop-to-content"))
 	{
 		svg_dirty = true;
 		DirtyLayout();
 	}
-
-	if (changed_attributes.find("width") != changed_attributes.end() || changed_attributes.find("height") != changed_attributes.end())
+	else if (changed_attributes.count("width") || changed_attributes.count("height"))
 	{
 		DirtyLayout();
 	}
@@ -94,13 +94,9 @@ void ElementSVG::SetInnerRML(const String& content)
 	if (!source.empty())
 		return;
 
-	// We use CreateString instead of std::to_string to avoid having to create an extra std::string and convert it to Rml::String in case clients use
-	// a non-std string.
-	if (!HasAttribute("rmlui-svgdata-id"))
-		SetAttribute("rmlui-svgdata-id", "svgdata:" + CreateString("%lu", internal_id_counter++));
-
 	svg_data = "" + content;
 	svg_dirty = true;
+	DirtyLayout();
 	EnsureSourceLoaded();
 }
 
@@ -115,7 +111,6 @@ void ElementSVG::EnsureSourceLoaded()
 	const auto source = GetAttribute<String>("src", "");
 	if (source.empty())
 	{
-		const auto source_id = GetAttribute<String>("rmlui-svgdata-id", "svgdata:undefined");
 		if (handle)
 			handle.reset(); // The old handle won't be re-used so clear it.
 
@@ -124,7 +119,7 @@ void ElementSVG::EnsureSourceLoaded()
 		ElementAttributes attrs = GetAttributes();
 		for (auto& attr : attrs)
 		{
-			if (attr.first == "src")
+			if (attr.first == "src" || attr.first == "rmlui-svgdata-id")
 				continue;
 			svg_element_source.append(attr.first);
 			svg_element_source.append("=\"");
@@ -135,7 +130,7 @@ void ElementSVG::EnsureSourceLoaded()
 		svg_element_source.append(svg_data);
 		svg_element_source.append("</svg>");
 
-		handle = SVG::SVGCache::GetHandle(source_id, svg_element_source, SVG::SVGCache::Data, this, crop_to_content, BoxArea::Content);
+		handle = SVG::SVGCache::GetHandle("svgdata:" + svg_element_source, svg_element_source, SVG::SVGCache::Data, this, crop_to_content, BoxArea::Content);
 	}
 	else
 	{

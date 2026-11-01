@@ -428,7 +428,7 @@ bool StyleSheetParser::ParseKeyframeBlock(KeyframesMap& keyframes_map, const Str
 		else if (rule == "to")
 			rule_values.push_back(1.0f);
 		else if (sscanf(rule.c_str(), "%f%%%n", &value, &count) == 1)
-			if (count > 0 && value >= 0.0f && value <= 100.0f)
+			if (count > 0 && size_t(count) == rule.size() && value >= 0.0f && value <= 100.0f)
 				rule_values.push_back(0.01f * value);
 	}
 
@@ -512,14 +512,16 @@ bool StyleSheetParser::ParseDecoratorBlock(const String& at_name, NamedDecorator
 
 	const PropertySpecification& property_specification = decorator_instancer->GetPropertySpecification();
 
-	PropertySpecificationParser parser(properties, property_specification);
+	PropertyDictionary declared_properties;
+	PropertySpecificationParser parser(declared_properties, property_specification);
 	ReadProperties(parser);
+	declared_properties.SetSourceOfAllProperties(source);
+	properties.Import(declared_properties);
 
-	// Set non-defined properties to their defaults
+	// Set non-defined properties to their defaults. Inherited properties keep their original source.
 	property_specification.SetPropertyDefaults(properties);
-	properties.SetSourceOfAllProperties(source);
 
-	named_decorator_map.emplace(name, NamedDecorator{std::move(decorator_type), decorator_instancer, std::move(properties)});
+	named_decorator_map.emplace(name, NamedDecorator{std::move(decorator_type), decorator_instancer, std::move(properties), source});
 
 	return true;
 }
@@ -644,8 +646,11 @@ bool StyleSheetParser::ParseMediaFeatureMap(const String& rules, PropertyDiction
 			current_string = StringUtilities::StripWhitespace(current_string);
 
 			if (!style_sheet_property_parsers->media_query.Parse(name, current_string))
+			{
 				Log::Message(Log::LT_WARNING, "Syntax error parsing media-query property declaration '%s: %s;' in %s: %d.", name.c_str(),
 					current_string.c_str(), stream_file_name.c_str(), line_number);
+				return false;
+			}
 
 			current_string.clear();
 			state = Global;
@@ -678,9 +683,10 @@ bool StyleSheetParser::ParseMediaFeatureMap(const String& rules, PropertyDiction
 		}
 	}
 
-	if (properties.Empty())
+	if (properties.Empty() || state != Global || !StringUtilities::StripWhitespace(current_string).empty())
 	{
-		Log::Message(Log::LT_WARNING, "Media query list parsing yielded no properties at %s:%d.", stream_file_name.c_str(), line_number);
+		Log::Message(Log::LT_WARNING, "Invalid or incomplete media query list at %s:%d.", stream_file_name.c_str(), line_number);
+		return false;
 	}
 
 	return true;
@@ -704,6 +710,7 @@ bool StyleSheetParser::Parse(MediaBlockList& style_sheets, Stream* _stream, int 
 
 	// Need to track whether currently inside a nested media block or not, since the default scope is also a media block
 	bool inside_media_block = false;
+	bool valid_media_block = true;
 
 	// At-rules given by the following syntax in global space: @identifier name { block }
 	String at_rule_name;
@@ -760,7 +767,8 @@ bool StyleSheetParser::Parse(MediaBlockList& style_sheets, Stream* _stream, int 
 					// Complete current block
 					PostprocessKeyframes(current_block.stylesheet->keyframes);
 					current_block.stylesheet->specificity_offset = rule_count;
-					style_sheets.push_back(std::move(current_block));
+					if (valid_media_block)
+						style_sheets.push_back(std::move(current_block));
 					current_block = {};
 
 					inside_media_block = false;
@@ -783,7 +791,7 @@ bool StyleSheetParser::Parse(MediaBlockList& style_sheets, Stream* _stream, int 
 						current_block = {PropertyDictionary{}, UniquePtr<StyleSheet>(new StyleSheet()), MediaQueryModifier::None};
 					}
 
-					const String at_rule_identifier = StringUtilities::StripWhitespace(pre_token_str.substr(0, pre_token_str.find(' ')));
+					const String at_rule_identifier = StringUtilities::StripWhitespace(pre_token_str.substr(0, pre_token_str.find_first_of(" \t\r\n\f")));
 					at_rule_name = StringUtilities::StripWhitespace(pre_token_str.substr(at_rule_identifier.size()));
 
 					if (at_rule_identifier == "keyframes")
@@ -842,14 +850,15 @@ bool StyleSheetParser::Parse(MediaBlockList& style_sheets, Stream* _stream, int 
 						{
 							PostprocessKeyframes(current_block.stylesheet->keyframes);
 							current_block.stylesheet->specificity_offset = rule_count;
-							style_sheets.push_back(std::move(current_block));
+							if (!inside_media_block || valid_media_block)
+								style_sheets.push_back(std::move(current_block));
 							current_block = {};
 						}
 
 						// parse media query list into block
 						PropertyDictionary feature_map;
 						MediaQueryModifier modifier;
-						ParseMediaFeatureMap(at_rule_name, feature_map, modifier);
+						valid_media_block = ParseMediaFeatureMap(at_rule_name, feature_map, modifier);
 						current_block = {std::move(feature_map), UniquePtr<StyleSheet>(new StyleSheet()), modifier};
 
 						inside_media_block = true;
@@ -927,7 +936,7 @@ bool StyleSheetParser::Parse(MediaBlockList& style_sheets, Stream* _stream, int 
 	}
 
 	// Complete last block if present
-	if (current_block.stylesheet)
+	if (current_block.stylesheet && (!inside_media_block || valid_media_block))
 	{
 		PostprocessKeyframes(current_block.stylesheet->keyframes);
 		current_block.stylesheet->specificity_offset = rule_count;
@@ -1089,7 +1098,7 @@ StyleSheetNode* StyleSheetParser::ImportProperties(StyleSheetNode* node, const S
 			bool reached_end_of_combinators = false;
 			switch (rule[index])
 			{
-			case ' ': break;
+			case ' ': case '\t': case '\r': case '\n': case '\f': break;
 			case '>': selector.combinator = SelectorCombinator::Child; break;
 			case '+': selector.combinator = SelectorCombinator::NextSibling; break;
 			case '~': selector.combinator = SelectorCombinator::SubsequentSibling; break;
@@ -1129,7 +1138,7 @@ StyleSheetNode* StyleSheetParser::ImportProperties(StyleSheetNode* node, const S
 				// Read until we hit the next identifier. Don't match inside parenthesis in case of structural selectors.
 				for (; end_index < rule.size(); end_index++)
 				{
-					static const String identifiers = "#.:[ >+~";
+					static const String identifiers = "#.:[ \t\r\n\f>+~";
 					if (parenthesis_count == 0 && identifiers.find(rule[end_index]) != String::npos && !IsEscapedCharacter(rule, end_index))
 						break;
 
@@ -1176,8 +1185,8 @@ StyleSheetNode* StyleSheetParser::ImportProperties(StyleSheetNode* node, const S
 			index = end_index;
 
 			// If we reached a combinator then we submit the current node and start fresh with a new node.
-			static const String combinators(" >+~");
-			if (combinators.find(rule[index]) != String::npos)
+			static const String combinators(" \t\r\n\f>+~");
+			if (index < rule.size() && combinators.find(rule[index]) != String::npos)
 				break;
 		}
 
@@ -1228,8 +1237,15 @@ bool StyleSheetParser::ReadCharacter(char& buffer)
 		while (parse_buffer_pos < parse_buffer.size())
 		{
 			if (parse_buffer[parse_buffer_pos] == '\n')
+			{
 				line_number++;
-			else if (comment)
+				if (!comment)
+				{
+					buffer = ' ';
+					return true;
+				}
+			}
+			if (comment)
 			{
 				// Check for closing comment
 				if (parse_buffer[parse_buffer_pos] == '*')

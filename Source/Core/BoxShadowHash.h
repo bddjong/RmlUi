@@ -43,13 +43,13 @@ struct hash<::Rml::Vector2f> {
 };
 template <>
 struct hash<::Rml::Colourb> {
-	size_t operator()(const ::Rml::Colourb& v) const noexcept { return static_cast<size_t>(hash<uint32_t>{}(reinterpret_cast<const uint32_t&>(v))); }
+	size_t operator()(const ::Rml::Colourb& v) const noexcept { return static_cast<size_t>(hash<uint32_t>{}((uint32_t(v.red) | (uint32_t(v.green) << 8) | (uint32_t(v.blue) << 16) | (uint32_t(v.alpha) << 24)))); }
 };
 template <>
 struct hash<::Rml::ColourbPremultiplied> {
 	size_t operator()(const ::Rml::ColourbPremultiplied& v) const noexcept
 	{
-		return static_cast<size_t>(hash<uint32_t>{}(reinterpret_cast<const uint32_t&>(v)));
+		return static_cast<size_t>(hash<uint32_t>{}((uint32_t(v.red) | (uint32_t(v.green) << 8) | (uint32_t(v.blue) << 16) | (uint32_t(v.alpha) << 24))));
 	}
 };
 

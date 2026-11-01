@@ -8,7 +8,7 @@ namespace Rml {
 namespace Lua {
 // where owner is the ElementFormControlSelect that we should look up information from
 struct SelectOptionsProxy {
-	ElementFormControlSelect* owner;
+	ObserverPtr<Element> owner;
 };
 
 int SelectOptionsProxy__index(lua_State* L);

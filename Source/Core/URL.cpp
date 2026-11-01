@@ -32,6 +32,14 @@ bool URL::SetURL(const String& _url)
 {
 	url_dirty = false;
 	url = _url;
+	login.clear();
+	password.clear();
+	host.clear();
+	port = 0;
+	parameters.clear();
+	path.clear();
+	file_name.clear();
+	extension.clear();
 
 	// Make sure an Empty URL is completely Empty.
 	if (url.empty())
@@ -162,6 +170,8 @@ bool URL::SetURL(const String& _url)
 			// Split into key and value
 			StringList key_value;
 			StringUtilities::ExpandString(key_value, parameter_list[i], '=');
+			if (key_value.empty())
+				continue;
 
 			key_value[0] = UrlDecode(key_value[0]);
 			if (key_value.size() == 2)
@@ -364,6 +374,7 @@ void URL::SetParameters(const Parameters& _parameters)
 void URL::ClearParameters()
 {
 	parameters.clear();
+	url_dirty = true;
 }
 
 String URL::GetPathedFileName() const
@@ -490,15 +501,13 @@ String URL::UrlEncode(const String& value)
 
 	encoded.clear();
 
-	const char* value_c = value.c_str();
-	for (String::size_type i = 0; value_c[i]; i++)
+	for (unsigned char c : value)
 	{
-		char c = value_c[i];
-		if (IsUnreservedChar(c))
-			encoded += c;
+		if (IsUnreservedChar(char(c)))
+			encoded += char(c);
 		else
 		{
-			snprintf(hex, hex_buffer_size, "%%%02X", c);
+			snprintf(hex, hex_buffer_size, "%%%02X", unsigned(c));
 			encoded += hex;
 		}
 	}
@@ -521,16 +530,23 @@ String URL::UrlDecode(const String& value)
 		{
 			decoded += ' ';
 		}
-		else if (c == '%')
+		else if (c == '%' && i + 2 < value_len)
 		{
-			char* endp;
-			String t = value.substr(i + 1, 2);
-			int ch = strtol(t.c_str(), &endp, 16);
-			if (*endp == '\0')
-				decoded += char(ch);
+			auto hex_value = [](char digit) -> int {
+				if (digit >= '0' && digit <= '9') return digit - '0';
+				if (digit >= 'a' && digit <= 'f') return digit - 'a' + 10;
+				if (digit >= 'A' && digit <= 'F') return digit - 'A' + 10;
+				return -1;
+			};
+			const int high = hex_value(value_c[i + 1]);
+			const int low = hex_value(value_c[i + 2]);
+			if (high >= 0 && low >= 0)
+			{
+				decoded += char(high * 16 + low);
+				i += 2;
+			}
 			else
-				decoded += t;
-			i += 2;
+				decoded += c;
 		}
 		else
 		{

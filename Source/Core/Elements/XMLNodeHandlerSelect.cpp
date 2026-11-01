@@ -40,6 +40,11 @@ Element* XMLNodeHandlerSelect::ElementStart(XMLParser* parser, const String& nam
 
 		ElementPtr option_element = Factory::InstanceElement(parser->GetParseFrame()->element, name, name, attributes);
 		Element* result = nullptr;
+		if (!option_element || option_element->GetTagName() != "option")
+		{
+			Log::Message(Log::LT_ERROR, "Instancer failed to create element for tag %s.", name.c_str());
+			return nullptr;
+		}
 
 		ElementFormControlSelect* select_element = rmlui_dynamic_cast<ElementFormControlSelect*>(parser->GetParseFrame()->element);
 		if (select_element)

@@ -78,7 +78,7 @@ public:
 	/// Instances an element tree based on the stream.
 	/// @param[in] parent The element the stream elements will be added to.
 	/// @param[in] stream The stream to read the element RML from.
-	/// @return True if the stream was parsed without error, false otherwise.
+	/// @return True if the stream was parsed without error, false otherwise. On failure, newly appended DOM children are removed.
 	static bool InstanceElementStream(Element* parent, Stream* stream);
 	/// Instances a document from a stream.
 	/// @param[in] context The context that is creating the document.

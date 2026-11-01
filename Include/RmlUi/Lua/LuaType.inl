@@ -101,10 +101,16 @@ namespace Lua {
 	template <typename T>
 	T* LuaType<T>::check(lua_State* L, int narg)
 	{
-		T** ptrHold = static_cast<T**>(lua_touserdata(L, narg));
-		if (ptrHold == nullptr)
+		if (lua_type(L, narg) != LUA_TUSERDATA || !lua_getmetatable(L, narg))
 			return nullptr;
-		return (*ptrHold);
+		lua_pushfstring(L, "__rml_type_%s", GetTClassName<T>());
+		lua_rawget(L, -2);
+		const bool compatible = lua_toboolean(L, -1) != 0;
+		lua_pop(L, 2);
+		if (!compatible)
+			return nullptr;
+		T** ptrHold = static_cast<T**>(lua_touserdata(L, narg));
+		return ptrHold ? *ptrHold : nullptr;
 	}
 
 	// private members
@@ -141,18 +147,13 @@ namespace Lua {
 			void* ptrHold = lua_touserdata(L, 1);
 			lua_pushlightuserdata(L, ptrHold); // ->[3] = userdata address as key
 			lua_rawget(L, -2);  //[-1 = 2] -> [3] = the value returned from if <ClassName> exists in the table to not gc
-			if (lua_isnoneornil(L, -1)) //[-1 = 3] if it doesn't exist, then we are free to garbage collect c++ side
-			{
+			const bool owned = lua_isnoneornil(L, -1);
+			lua_pushlightuserdata(L, ptrHold);
+			lua_pushnil(L);
+			lua_rawset(L, -4);
+			*static_cast<T**>(ptrHold) = nullptr;
+			if (owned)
 				delete obj;
-				obj = nullptr;
-
-				// Change the field to not gc the next time we encounter this pointer. This may be necessary in case the
-				// just deleted object shared an address with a previously deleted (non-GCed) object, the latter which
-				// this function will be called upon later.
-				lua_pushlightuserdata(L, ptrHold); // ->[4] = userdata address as key
-				lua_pushboolean(L, 1);             // ->[5] = true
-				lua_rawset(L, -4);                 // represents t[k] = v, [-4 = 2] = t -> v = [5], k = [4]; pop [5] and [4]
-			}
 		}
 		lua_pop(L, 3); // balance function
 		return 0;
@@ -195,8 +196,13 @@ namespace Lua {
 	}
 
 	template <typename T>
-	void LuaType<T>::_regfunctions(lua_State* L, int /*meta*/, int methods)
+	void LuaType<T>::_regfunctions(lua_State* L, int meta, int methods)
 	{
+		// Each inherited registration marks the userdata metatable as compatible.
+		lua_pushfstring(L, "__rml_type_%s", GetTClassName<T>());
+		lua_pushboolean(L, 1);
+		lua_rawset(L, meta);
+
 		// fill method table with methods.
 		for (RegType* m = (RegType*)GetMethodTable<T>(); m->name; m++)
 		{

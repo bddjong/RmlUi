@@ -1,4 +1,5 @@
 #include "LuaDataModel.h"
+#include "Event.h"
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/DataVariable.h>
@@ -315,6 +316,8 @@ static int TableProxyGet(lua_State* L)
 {
 	// 1 = table proxy, 2 = key
 	struct TableProxy* proxy = (struct TableProxy*)lua_touserdata(L, 1);
+	if (!proxy->model->L)
+		return luaL_error(L, "DataModel closed");
 
 	lua_rawgeti(L, LUA_REGISTRYINDEX, proxy->model->tablestore_ref);
 	// -1 = tablestore
@@ -396,6 +399,8 @@ static int TableProxySet(lua_State* L)
 {
 	// 1 = table proxy, 2 = key, 3 = value
 	struct TableProxy* proxy = (struct TableProxy*)lua_touserdata(L, 1);
+	if (!proxy->model->L)
+		return luaL_error(L, "DataModel closed");
 
 	struct TableProxy* value_proxy = ToTableProxy(L, 3);
 	if (value_proxy != nullptr)
@@ -403,6 +408,13 @@ static int TableProxySet(lua_State* L)
 		PushValue(proxy->model, value_proxy->table_ref);
 		lua_replace(L, 3);
 	}
+
+	// Keep the backing table current so its length reflects array edits.
+	PushValue(proxy->model, proxy->table_ref);
+	lua_pushvalue(L, 2);
+	lua_pushvalue(L, 3);
+	lua_rawset(L, -3);
+	lua_pop(L, 1);
 
 	lua_rawgeti(L, LUA_REGISTRYINDEX, proxy->model->valuestore_ref);
 	// -1 = valuestore
@@ -435,7 +447,10 @@ static int TableProxySet(lua_State* L)
 		lua_pushnumber(L, child_ref);
 		// -1 = child ref, -2 = key, -3 = tablestore entry, -4 = valuestore
 		lua_rawset(L, -3);
-		// -1 = tablestore entry, -2 = valuestore
+		// Notify views even when this key was not cached before the assignment.
+		lua_rawgeti(L, LUA_REGISTRYINDEX, proxy->model->keystore_ref);
+		lua_rawgeti(L, -1, proxy->key_ref);
+		proxy->model->handle.DirtyVariable(lua_tostring(L, -1));
 		return 0;
 	}
 
@@ -512,6 +527,14 @@ static struct TableProxy* NewTableProxy(struct LuaDataModel* model, int key_ref)
 	proxy->table_ref = table_ref;
 	proxy->key_ref = key_ref;
 
+	// Keep model userdata alive while an external proxy is retained.
+	lua_newtable(L);
+	lua_rawgeti(L, LUA_REGISTRYINDEX, model->valuestore_ref);
+	lua_rawgeti(L, -1, model->model_ref);
+	lua_remove(L, -2);
+	lua_rawseti(L, -2, 1);
+	lua_setuservalue(L, -2);
+
 	if (luaL_newmetatable(L, RMLTABLEPROXY))
 	{
 		luaL_Reg l[] = {
@@ -585,11 +608,12 @@ static void BindVariable(struct LuaDataModel* model)
 	if (lua_type(L, -1) == LUA_TFUNCTION)
 	{
 		model->constructor.BindEventCallback(key, [=](DataModelHandle, Event& event, const VariantList& varlist) {
+			EventScope event_scope(event);
 			PushValue(model, ref);
 			luabind::invoke(
 				L,
 				[&]() {
-					LuaType<Event>::push(L, &event, false);
+					event_scope.Push(L);
 					for (const auto& variant : varlist)
 					{
 						PushVariant(L, &variant);

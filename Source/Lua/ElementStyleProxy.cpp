@@ -30,6 +30,7 @@ int ElementStyleProxy__index(lua_State* L)
 	{
 		ElementStyleProxy* es = LuaType<ElementStyleProxy>::check(L, 1);
 		RMLUI_CHECK_OBJ(es);
+		RMLUI_CHECK_OBJ(es->owner.get());
 		const Property* prop = es->owner->GetProperty(lua_tostring(L, 2));
 		RMLUI_CHECK_OBJ(prop)
 		lua_pushstring(L, prop->ToString().c_str());
@@ -47,6 +48,7 @@ int ElementStyleProxy__newindex(lua_State* L)
 	//[1] = obj, [2] = key, [3] = value
 	ElementStyleProxy* es = LuaType<ElementStyleProxy>::check(L, 1);
 	RMLUI_CHECK_OBJ(es);
+	RMLUI_CHECK_OBJ(es->owner.get());
 	int keytype = lua_type(L, 2);
 	int valuetype = lua_type(L, 3);
 	if (keytype == LUA_TSTRING)
@@ -71,56 +73,26 @@ int ElementStyleProxy__newindex(lua_State* L)
 	return LuaType<ElementStyleProxy>::newindex(L);
 }
 
-struct ElementStyleProxyPairs {
-	static int next(lua_State* L)
+int ElementStyleProxy__pairs(lua_State* L)
+{
+	ElementStyleProxy* obj = LuaType<ElementStyleProxy>::check(L, 1);
+	RMLUI_CHECK_OBJ(obj);
+	RMLUI_CHECK_OBJ(obj->owner.get());
+	lua_getglobal(L, "next");
+	lua_newtable(L);
+	for (auto view = obj->owner->IterateLocalProperties(nullptr); !view.AtEnd(); ++view)
 	{
-		ElementStyleProxyPairs* self = static_cast<ElementStyleProxyPairs*>(lua_touserdata(L, lua_upvalueindex(1)));
-		if (self->m_view.AtEnd())
-		{
-			return 0;
-		}
-		const auto& [key, property] = *self->m_view;
+		const auto& [key, property] = *view;
 		String value;
 		if (property.definition)
 			property.definition->GetValue(value, property);
 		else
 			value = property.ToString();
-		lua_pushlstring(L, key.c_str(), key.size());
 		lua_pushlstring(L, value.c_str(), value.size());
-		++self->m_view;
-		return 2;
+		lua_setfield(L, -2, key.c_str());
 	}
-	static int destroy(lua_State* L)
-	{
-		static_cast<ElementStyleProxyPairs*>(lua_touserdata(L, 1))->~ElementStyleProxyPairs();
-		return 0;
-	}
-	static int constructor(lua_State* L, ElementStyleProxy* obj)
-	{
-		void* storage = lua_newuserdata(L, sizeof(ElementStyleProxyPairs));
-		if (luaL_newmetatable(L, "RmlUi::Lua::ElementStyleProxyPairs"))
-		{
-			static luaL_Reg mt[] = {
-				{"__gc", destroy},
-				{NULL, NULL},
-			};
-			luaL_setfuncs(L, mt, 0);
-		}
-		lua_setmetatable(L, -2);
-		lua_pushcclosure(L, next, 1);
-		new (storage) ElementStyleProxyPairs(obj);
-		return 1;
-	}
-	ElementStyleProxyPairs(ElementStyleProxy* obj) : m_view(obj->owner->IterateLocalProperties(nullptr)) {}
-	PropertiesIteratorView m_view;
-};
-
-int ElementStyleProxy__pairs(lua_State* L)
-{
-	ElementStyleProxy* obj = LuaType<ElementStyleProxy>::check(L, 1);
-	RMLUI_CHECK_OBJ(obj);
-	ElementStyleProxyPairs::constructor(L, obj);
-	return 1;
+	lua_pushnil(L);
+	return 3;
 }
 
 RegType<ElementStyleProxy> ElementStyleProxyMethods[] = {

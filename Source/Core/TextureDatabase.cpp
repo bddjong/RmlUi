@@ -22,58 +22,73 @@ CallbackTextureDatabase::~CallbackTextureDatabase()
 StableVectorIndex CallbackTextureDatabase::CreateTexture(CallbackTextureFunction&& callback)
 {
 	RMLUI_ASSERT(callback);
-	return texture_list.insert(CallbackTextureEntry{std::move(callback), TextureHandle(), Vector2i()});
+	auto entry = std::make_shared<CallbackTextureEntry>();
+	entry->callback = std::move(callback);
+	return texture_list.insert(std::move(entry));
 }
 
 void CallbackTextureDatabase::ReleaseTexture(RenderInterface* render_interface, StableVectorIndex callback_index)
 {
-	CallbackTextureEntry& data = texture_list[callback_index];
-	if (data.texture_handle)
-		render_interface->ReleaseTexture(data.texture_handle);
-	texture_list.erase(callback_index);
+	auto entry = texture_list.erase(callback_index);
+	entry->alive = false;
+	++entry->generation;
+	auto handle = std::exchange(entry->texture_handle, {});
+	entry->dimensions = {};
+	if (handle)
+		render_interface->ReleaseTexture(handle);
 }
 
-Vector2i CallbackTextureDatabase::GetDimensions(RenderManager* render_manager, RenderInterface* render_interface, StableVectorIndex callback_index)
+Vector2i CallbackTextureDatabase::GetDimensions(RenderManager* manager, RenderInterface* renderer, StableVectorIndex index)
 {
-	return EnsureLoaded(render_manager, render_interface, callback_index).dimensions;
+	return EnsureLoaded(manager, renderer, index)->dimensions;
 }
 
-TextureHandle CallbackTextureDatabase::GetHandle(RenderManager* render_manager, RenderInterface* render_interface, StableVectorIndex callback_index)
+TextureHandle CallbackTextureDatabase::GetHandle(RenderManager* manager, RenderInterface* renderer, StableVectorIndex index)
 {
-	return EnsureLoaded(render_manager, render_interface, callback_index).texture_handle;
+	return EnsureLoaded(manager, renderer, index)->texture_handle;
 }
 
-auto CallbackTextureDatabase::EnsureLoaded(RenderManager* render_manager, RenderInterface* render_interface, StableVectorIndex callback_index)
-	-> CallbackTextureEntry&
+auto CallbackTextureDatabase::EnsureLoaded(RenderManager* manager, RenderInterface* renderer, StableVectorIndex index)
+	-> std::shared_ptr<CallbackTextureEntry>
 {
-	CallbackTextureEntry& data = texture_list[callback_index];
-	if (!data.texture_handle && !data.load_failed)
+	auto entry = texture_list[index];
+	if (!entry->texture_handle && !entry->load_failed && !entry->loading)
 	{
-		if (!data.callback(CallbackTextureInterface(*render_manager, *render_interface, data.texture_handle, data.dimensions)))
+		entry->loading = true;
+		const auto generation = entry->generation;
+		TextureHandle handle = {};
+		Vector2i dimensions = {};
+		const bool success = entry->callback(CallbackTextureInterface(*manager, *renderer, handle, dimensions));
+		entry->loading = false;
+		if (entry->alive && entry->generation == generation && success)
 		{
-			data.load_failed = true;
-			data.texture_handle = {};
-			data.dimensions = {};
+			entry->texture_handle = handle;
+			entry->dimensions = dimensions;
+		}
+		else
+		{
+			if (entry->alive && entry->generation == generation)
+				entry->load_failed = true;
+			if (handle)
+				renderer->ReleaseTexture(handle);
 		}
 	}
-	return data;
+	return entry;
 }
 
-size_t CallbackTextureDatabase::size() const
-{
-	return texture_list.size();
-}
+size_t CallbackTextureDatabase::size() const { return texture_list.size(); }
 
-void CallbackTextureDatabase::ReleaseAllTextures(RenderInterface* render_interface)
+void CallbackTextureDatabase::ReleaseAllTextures(RenderInterface* renderer)
 {
-	texture_list.for_each([render_interface](CallbackTextureEntry& texture) {
-		if (texture.texture_handle)
-		{
-			render_interface->ReleaseTexture(texture.texture_handle);
-			texture.texture_handle = {};
-			texture.dimensions = {};
-		}
+	Vector<TextureHandle> handles;
+	texture_list.for_each([&](std::shared_ptr<CallbackTextureEntry>& entry) {
+		++entry->generation;
+		if (entry->texture_handle)
+			handles.push_back(std::exchange(entry->texture_handle, {}));
+		entry->dimensions = {};
 	});
+	for (auto handle : handles)
+		renderer->ReleaseTexture(handle);
 }
 
 FileTextureDatabase::FileTextureDatabase() {}
@@ -81,9 +96,9 @@ FileTextureDatabase::FileTextureDatabase() {}
 FileTextureDatabase::~FileTextureDatabase()
 {
 #ifdef RMLUI_DEBUG
-	for (const FileTextureEntry& texture : texture_list)
+	for (const auto& texture : texture_list)
 	{
-		RMLUI_ASSERTMSG(!texture.texture_handle,
+		RMLUI_ASSERTMSG(!texture->texture_handle,
 			"TextureDatabase destroyed without releasing all file textures first. Ensure that 'ReleaseAllTextures' is called before destruction.");
 	}
 #endif
@@ -98,47 +113,47 @@ TextureFileIndex FileTextureDatabase::InsertTexture(const String& source)
 	// The texture is not yet loaded from the render interface. That is deferred until the texture is needed, such as when it becomes visible.
 	const auto index = TextureFileIndex(texture_list.size());
 	texture_map[source] = index;
-	texture_list.push_back({});
+	auto entry = std::make_shared<FileTextureEntry>();
+	entry->source = source;
+	texture_list.push_back(std::move(entry));
 
 	return index;
 }
 
-FileTextureDatabase::FileTextureEntry FileTextureDatabase::LoadTextureEntry(RenderInterface* render_interface, const String& source)
+auto FileTextureDatabase::EnsureLoaded(RenderInterface* renderer, TextureFileIndex index) -> std::shared_ptr<FileTextureEntry>
 {
-	FileTextureEntry result = {};
-	result.texture_handle = render_interface->LoadTexture(result.dimensions, source);
-	if (!result.texture_handle)
+	auto entry = texture_list[size_t(index)];
+	if (!entry->texture_handle && !entry->load_texture_failed && !entry->loading)
 	{
-		result.load_texture_failed = true;
-		Rml::Log::Message(Rml::Log::LT_WARNING, "Could not load texture: %s", source.c_str());
-	}
-	return result;
-}
-
-FileTextureDatabase::FileTextureEntry& FileTextureDatabase::EnsureLoaded(RenderInterface* render_interface, TextureFileIndex index)
-{
-	FileTextureEntry& entry = texture_list[size_t(index)];
-	if (!entry.texture_handle)
-	{
-		auto it = std::find_if(texture_map.begin(), texture_map.end(), [index](const auto& pair) { return pair.second == index; });
-		RMLUI_ASSERT(it != texture_map.end());
-		const String& source = it->first;
-		if (!entry.load_texture_failed)
-			entry = LoadTextureEntry(render_interface, source);
+		entry->loading = true;
+		const auto generation = entry->generation;
+		Vector2i dimensions = {};
+		auto handle = renderer->LoadTexture(dimensions, entry->source);
+		entry->loading = false;
+		if (entry->generation == generation)
+		{
+			entry->texture_handle = handle;
+			entry->dimensions = dimensions;
+			entry->load_texture_failed = !handle;
+			if (!handle)
+				Log::Message(Log::LT_WARNING, "Could not load texture: %s", entry->source.c_str());
+		}
+		else if (handle)
+			renderer->ReleaseTexture(handle);
 	}
 	return entry;
 }
 
-TextureHandle FileTextureDatabase::GetHandle(RenderInterface* render_interface, TextureFileIndex index)
+TextureHandle FileTextureDatabase::GetHandle(RenderInterface* renderer, TextureFileIndex index)
 {
 	RMLUI_ASSERT(size_t(index) < texture_list.size());
-	return EnsureLoaded(render_interface, index).texture_handle;
+	return EnsureLoaded(renderer, index)->texture_handle;
 }
 
-Vector2i FileTextureDatabase::GetDimensions(RenderInterface* render_interface, TextureFileIndex index)
+Vector2i FileTextureDatabase::GetDimensions(RenderInterface* renderer, TextureFileIndex index)
 {
 	RMLUI_ASSERT(size_t(index) < texture_list.size());
-	return EnsureLoaded(render_interface, index).dimensions;
+	return EnsureLoaded(renderer, index)->dimensions;
 }
 
 void FileTextureDatabase::GetSourceList(StringList& source_list) const
@@ -148,33 +163,32 @@ void FileTextureDatabase::GetSourceList(StringList& source_list) const
 		source_list.push_back(texture.first);
 }
 
-bool FileTextureDatabase::ReleaseTexture(RenderInterface* render_interface, const String& source)
+bool FileTextureDatabase::ReleaseTexture(RenderInterface* renderer, const String& source)
 {
 	auto it = texture_map.find(source);
 	if (it == texture_map.end())
 		return false;
-
-	FileTextureEntry& texture = texture_list[size_t(it->second)];
-	if (texture.texture_handle)
-	{
-		render_interface->ReleaseTexture(texture.texture_handle);
-		texture = {};
-		return true;
-	}
-
-	return false;
+	auto entry = texture_list[size_t(it->second)];
+	++entry->generation;
+	auto handle = std::exchange(entry->texture_handle, {});
+	entry->dimensions = {};
+	if (handle)
+		renderer->ReleaseTexture(handle);
+	return bool(handle);
 }
 
-void FileTextureDatabase::ReleaseAllTextures(RenderInterface* render_interface)
+void FileTextureDatabase::ReleaseAllTextures(RenderInterface* renderer)
 {
-	for (FileTextureEntry& texture : texture_list)
+	Vector<TextureHandle> handles;
+	for (const auto& entry : texture_list)
 	{
-		if (texture.texture_handle)
-		{
-			render_interface->ReleaseTexture(texture.texture_handle);
-			texture = {};
-		}
+		++entry->generation;
+		if (entry->texture_handle)
+			handles.push_back(std::exchange(entry->texture_handle, {}));
+		entry->dimensions = {};
 	}
+	for (auto handle : handles)
+		renderer->ReleaseTexture(handle);
 }
 
 } // namespace Rml

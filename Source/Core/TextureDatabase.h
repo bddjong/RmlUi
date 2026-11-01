@@ -3,6 +3,7 @@
 #include "../../Include/RmlUi/Core/CallbackTexture.h"
 #include "../../Include/RmlUi/Core/StableVector.h"
 #include "../../Include/RmlUi/Core/Types.h"
+#include <memory>
 
 namespace Rml {
 
@@ -29,11 +30,14 @@ private:
 		TextureHandle texture_handle = {};
 		Vector2i dimensions;
 		bool load_failed = false;
+		bool loading = false;
+		bool alive = true;
+		unsigned generation = 0;
 	};
 
-	CallbackTextureEntry& EnsureLoaded(RenderManager* render_manager, RenderInterface* render_interface, StableVectorIndex callback_index);
+	std::shared_ptr<CallbackTextureEntry> EnsureLoaded(RenderManager* render_manager, RenderInterface* render_interface, StableVectorIndex callback_index);
 
-	StableVector<CallbackTextureEntry> texture_list;
+	StableVector<std::shared_ptr<CallbackTextureEntry>> texture_list;
 };
 
 class FileTextureDatabase : NonCopyMoveable {
@@ -56,12 +60,14 @@ private:
 		TextureHandle texture_handle = {};
 		Vector2i dimensions;
 		bool load_texture_failed = false;
+		bool loading = false;
+		unsigned generation = 0;
+		String source;
 	};
 
-	FileTextureEntry LoadTextureEntry(RenderInterface* render_interface, const String& source);
-	FileTextureEntry& EnsureLoaded(RenderInterface* render_interface, TextureFileIndex index);
+	std::shared_ptr<FileTextureEntry> EnsureLoaded(RenderInterface* render_interface, TextureFileIndex index);
 
-	Vector<FileTextureEntry> texture_list;
+	Vector<std::shared_ptr<FileTextureEntry>> texture_list;
 	UnorderedMap<String, TextureFileIndex> texture_map; // key: source, value: index into 'texture_list'
 };
 

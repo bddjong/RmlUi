@@ -19,7 +19,7 @@ int ElementFormControlSelectAdd(lua_State* L, ElementFormControlSelect* obj)
 		before = GetIndex(L, 3);
 
 	int index = obj->Add(rml, value, before);
-	lua_pushinteger(L, index);
+	PushIndex(L, index);
 	return 1;
 }
 
@@ -42,7 +42,7 @@ int ElementFormControlSelectGetAttroptions(lua_State* L)
 	ElementFormControlSelect* obj = LuaType<ElementFormControlSelect>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
 	SelectOptionsProxy* proxy = new SelectOptionsProxy();
-	proxy->owner = obj;
+	proxy->owner = obj->GetObserverPtr();
 	LuaType<SelectOptionsProxy>::push(L, proxy, true);
 	return 1;
 }

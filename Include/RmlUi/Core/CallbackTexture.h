@@ -15,6 +15,11 @@ class Texture;
     Callback function for generating textures on demand.
     /// @param[in] texture_interface The interface used to specify the texture.
     /// @return True on success.
+    /// The interface and its references are valid only for this invocation. A callback may
+    /// release its own CallbackTexture or invalidate cached textures; an invalidated in-flight
+    /// result is discarded and its submitted handle released. Recursive access to the same
+    /// texture while loading returns an empty result. The RenderManager and RenderInterface
+    /// must outlive all calls into them, including callbacks and nested calls.
  */
 using CallbackTextureFunction = Function<bool(const CallbackTextureInterface& texture_interface)>;
 
@@ -26,6 +31,9 @@ using CallbackTextureFunction = Function<bool(const CallbackTextureInterface& te
 class RMLUICORE_API CallbackTexture final : public UniqueRenderResource<CallbackTexture, StableVectorIndex, StableVectorIndex::Invalid> {
 public:
 	CallbackTexture() = default;
+	~CallbackTexture() noexcept { Release(); }
+	CallbackTexture(CallbackTexture&&) noexcept = default;
+	CallbackTexture& operator=(CallbackTexture&&) noexcept = default;
 
 	operator Texture() const;
 

@@ -71,23 +71,26 @@ FontFaceHandleHarfBuzz* FontEngineInterfaceHarfBuzz::FaceForRun(FontFaceHandleHa
 		const char* begin = context.paragraph_text.begin() + start;
 		run = StringView(begin, begin + length);
 	}
-	FontFaceHandleHarfBuzz* result = primary;
-	const char* p = run.begin();
-	while (p < run.end()) {
-		const Character c = Rml::StringUtilities::ToCharacter(p, run.end());
-		if (hb_unicode_script(hb_unicode_funcs_get_default(), (hb_codepoint_t)c) == HB_SCRIPT_ARABIC) {
-			if (!primary->SupportsCharacter(c)) {
-				const int count = FontProvider::CountFallbackFontFaces();
-				for (int i = 0; i < count; ++i) {
-					auto* fallback = FontProvider::GetFallbackFontFace(i, primary->GetFontMetrics().size);
-					if (fallback && fallback->SupportsCharacter(c)) { result = fallback; break; }
-				}
-			}
-			break;
+	// Select one face that covers every Arabic character in the shaping run.
+	auto supports_arabic_run = [&](FontFaceHandleHarfBuzz* face) {
+		const char* p = run.begin();
+		while (p < run.end()) {
+			const Character c = Rml::StringUtilities::ToCharacter(p, run.end());
+			if (hb_unicode_script(hb_unicode_funcs_get_default(), (hb_codepoint_t)c) == HB_SCRIPT_ARABIC && !face->SupportsCharacter(c))
+				return false;
+			const int bytes = (int)Rml::StringUtilities::BytesUTF8(c);
+			if (bytes <= 0 || p + bytes > run.end()) break;
+			p += bytes;
 		}
-		const int bytes = (int)Rml::StringUtilities::BytesUTF8(c);
-		if (bytes <= 0 || p + bytes > run.end()) break;
-		p += bytes;
+		return true;
+	};
+	FontFaceHandleHarfBuzz* result = primary;
+	if (!supports_arabic_run(primary)) {
+		const int count = FontProvider::CountFallbackFontFaces();
+		for (int i = 0; i < count; ++i) {
+			auto* fallback = FontProvider::GetFallbackFontFace(i, primary->GetFontMetrics().size);
+			if (fallback && supports_arabic_run(fallback)) { result = fallback; break; }
+		}
 	}
 	face_run_owner = cacheable ? context.paragraph_owner : Rml::SharedPtr<const String>{};
 	face_run_primary = primary;

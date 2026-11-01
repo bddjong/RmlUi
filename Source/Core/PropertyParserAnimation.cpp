@@ -137,7 +137,7 @@ bool PropertyParserAnimation::ParseAnimation(Property& property, const StringLis
 				{
 				case KeywordType::None:
 				{
-					if (animation_list.size() > 0) // The none keyword can not be part of multiple definitions
+					if (animation_values.size() != 1 || arguments.size() != 1)
 						return false;
 					property = Property{AnimationList{}, Unit::ANIMATION};
 					return true;
@@ -161,10 +161,12 @@ bool PropertyParserAnimation::ParseAnimation(Property& property, const StringLis
 				float number = 0.0f;
 				int count = 0;
 
-				if (sscanf(argument.c_str(), "%fs%n", &number, &count) == 1)
+				if (sscanf(argument.c_str(), "%f%n", &number, &count) == 1)
 				{
-					// Found a number, if there was an 's' unit, count will be positive
-					if (count > 0)
+					if (argument[count] != '\0' && !(argument[count] == 's' && argument[count + 1] == '\0'))
+						return false;
+					// A trailing 's' identifies a time value.
+					if (argument[count] == 's')
 					{
 						// Duration or delay was assigned
 						if (!duration_found)
@@ -242,7 +244,7 @@ bool PropertyParserAnimation::ParseTransition(Property& property, const StringLi
 			{
 				if (it->second.type == KeywordType::None)
 				{
-					if (transition_list.transitions.size() > 0) // The none keyword can not be part of multiple definitions
+					if (transition_values.size() != 1 || arguments.size() != 1)
 						return false;
 					property = Property{TransitionList{true, false, {}}, Unit::TRANSITION};
 					return true;
@@ -264,10 +266,12 @@ bool PropertyParserAnimation::ParseTransition(Property& property, const StringLi
 				float number = 0.0f;
 				int count = 0;
 
-				if (sscanf(argument.c_str(), "%fs%n", &number, &count) == 1)
+				if (sscanf(argument.c_str(), "%f%n", &number, &count) == 1)
 				{
-					// Found a number, if there was an 's' unit, count will be positive
-					if (count > 0)
+					if (argument[count] != '\0' && !(argument[count] == 's' && argument[count + 1] == '\0'))
+						return false;
+					// A trailing 's' identifies a time value.
+					if (argument[count] == 's')
 					{
 						// Duration or delay was assigned
 						if (!duration_found)

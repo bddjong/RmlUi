@@ -22,6 +22,7 @@
 #include "ElementBackgroundBorder.h"
 #include "ElementDefinition.h"
 #include "ElementEffects.h"
+#include "ElementFocus.h"
 #include "ElementMeta.h"
 #include "ElementStyle.h"
 #include "EventDispatcher.h"
@@ -36,6 +37,7 @@
 #include "TransformUtilities.h"
 #include "XMLParseTools.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace Rml {
@@ -125,28 +127,57 @@ void Element::Update(float dp_ratio, Vector2f vp_dimensions)
 	RMLUI_ZoneText(name.c_str(), name.size());
 #endif
 
+	auto self = GetObserverPtr();
 	OnUpdate();
+	if (!self) return;
 
 	HandleTransitionProperty();
 	HandleAnimationProperty();
 	AdvanceAnimations();
+	if (!self) return;
 
 	meta->scroll.Update();
+	if (!self) return;
 
 	UpdateProperties(dp_ratio, vp_dimensions);
+	if (!self) return;
 
 	// Do en extra pass over the animations and properties if the 'animation' property was just changed.
 	if (dirty_animation)
 	{
 		HandleAnimationProperty();
 		AdvanceAnimations();
+		if (!self) return;
 		UpdateProperties(dp_ratio, vp_dimensions);
+		if (!self) return;
 	}
 
 	meta->effects.InstanceEffects();
 
-	for (size_t i = 0; i < children.size(); i++)
-		children[i]->Update(dp_ratio, vp_dimensions);
+	// Snapshot all children before invoking callbacks. Most elements have only a
+	// few children, so keep those observer pointers on the stack.
+	std::array<ObserverPtr<Element>, 8> inline_children;
+	Vector<ObserverPtr<Element>> overflow_children;
+	const size_t child_count = children.size();
+	if (child_count > inline_children.size())
+		overflow_children.reserve(child_count - inline_children.size());
+	for (size_t i = 0; i < child_count; ++i)
+	{
+		if (i < inline_children.size())
+			inline_children[i] = children[i]->GetObserverPtr();
+		else
+			overflow_children.push_back(children[i]->GetObserverPtr());
+	}
+	for (size_t i = 0; i < child_count; ++i)
+	{
+		const auto& child = i < inline_children.size() ? inline_children[i] : overflow_children[i - inline_children.size()];
+		if (Element* element = child.get())
+		{
+			if (element->GetParentNode() == this)
+				element->Update(dp_ratio, vp_dimensions);
+		}
+		if (!self) return;
+	}
 
 	if (!animations.empty() && IsVisible(true))
 	{
@@ -720,8 +751,8 @@ Vector2f Element::GetContainingBlock()
 		if (position_property == Position::Static || position_property == Position::Relative)
 		{
 			containing_block = parent_box.GetSize();
-			containing_block.x -= meta->scroll.GetScrollbarSize(ElementScroll::VERTICAL);
-			containing_block.y -= meta->scroll.GetScrollbarSize(ElementScroll::HORIZONTAL);
+			containing_block.x -= offset_parent->meta->scroll.GetScrollbarSize(ElementScroll::VERTICAL);
+			containing_block.y -= offset_parent->meta->scroll.GetScrollbarSize(ElementScroll::HORIZONTAL);
 		}
 		else if (position_property == Position::Absolute || position_property == Position::Fixed)
 		{
@@ -1182,7 +1213,7 @@ bool Element::Focus(bool focus_visible)
 {
 	// Are we allowed focus?
 	Style::Focus focus_property = meta->computed_values.focus();
-	if (focus_property == Style::Focus::None)
+	if (focus_property == Style::Focus::None || IsDisabledForFocus(this))
 		return false;
 
 	// Ask our context if we can switch focus.
@@ -1436,6 +1467,9 @@ ElementPtr Element::ReplaceChild(ElementPtr inserted_element, Element* replaced_
 		AppendChild(std::move(inserted_element));
 		return nullptr;
 	}
+
+	if (insertion_point - children.begin() >= GetNumChildren())
+		num_non_dom_children++;
 
 	children.insert(insertion_point, std::move(inserted_element));
 	inserted_element_ptr->SetParent(this);
@@ -2069,7 +2103,7 @@ void Element::GetRML(String& content)
 			content += ' ';
 			content += name;
 			content += "=\"";
-			content += value;
+			content += StringUtilities::EncodeRml(value);
 			content += "\"";
 		}
 	}
@@ -2600,7 +2634,7 @@ ElementAnimationList::iterator Element::StartAnimation(PropertyId property_id, c
 				"Could not animate property '%s' on element: %s. "
 				"Please ensure that the property does not appear in multiple animations on the same element.",
 				StyleSheetSpecification::GetPropertyName(property_id).c_str(), GetAddress().c_str());
-			return it;
+			return animations.end();
 		}
 
 		*it = ElementAnimation{};
@@ -2807,13 +2841,15 @@ void Element::HandleAnimationProperty()
 
 						const bool has_from_key = (blocks.front().normalized_time == 0);
 						const bool has_to_key = (blocks.back().normalized_time == 1);
+						SmallUnorderedSet<PropertyId> started_properties;
 
 						// If the first key defines initial conditions for a given property, use those values, else, use this element's current
 						// values.
 						for (PropertyId id : property_ids)
 						{
 							const Property* property = ResolveProperty(id, (has_from_key ? blocks.front().properties.GetProperty(id) : nullptr), 0);
-							StartAnimation(id, property, animation.num_iterations, animation.alternate, animation.delay, true);
+							if (StartAnimation(id, property, animation.num_iterations, animation.alternate, animation.delay, true) != animations.end())
+								started_properties.insert(id);
 						}
 
 						// Add middle keys: Need to skip the first and last keys if they set the initial and end conditions, respectively.
@@ -2823,6 +2859,8 @@ void Element::HandleAnimationProperty()
 							float time = blocks[i].normalized_time * animation.duration;
 							for (const auto& [id, unresolved_property] : blocks[i].properties.GetProperties())
 							{
+								if (started_properties.find(id) == started_properties.end())
+									continue;
 								const Property* property = ResolveProperty(id, &unresolved_property, i);
 								AddAnimationKeyTime(id, property, time, animation.tween);
 							}
@@ -2832,10 +2870,17 @@ void Element::HandleAnimationProperty()
 						float time = animation.duration;
 						for (PropertyId id : property_ids)
 						{
+							if (started_properties.find(id) == started_properties.end())
+								continue;
 							const Property* property =
 								ResolveProperty(id, (has_to_key ? blocks.back().properties.GetProperty(id) : nullptr), (int)blocks.size() - 1);
 							AddAnimationKeyTime(id, property, time, animation.tween);
 						}
+
+						// Discard animations for which every target key was rejected.
+						animations.erase(std::remove_if(animations.begin(), animations.end(), [&](const ElementAnimation& candidate) {
+							return started_properties.find(candidate.GetPropertyId()) != started_properties.end() && !candidate.HasTargetKey();
+						}), animations.end());
 					}
 				}
 			}
@@ -2882,8 +2927,12 @@ void Element::AdvanceAnimations()
 		// Need to erase elements before submitting event, as iterators might be invalidated when calling external code.
 		animations.erase(it_completed, animations.end());
 
+		auto self = GetObserverPtr();
 		for (size_t i = 0; i < dictionary_list.size(); i++)
+		{
 			DispatchEvent(is_transition[i] ? EventId::Transitionend : EventId::Animationend, dictionary_list[i]);
+			if (!self) return;
+		}
 	}
 }
 

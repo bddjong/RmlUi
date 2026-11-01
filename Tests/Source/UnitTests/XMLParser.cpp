@@ -5,6 +5,8 @@
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/ElementText.h>
 #include <RmlUi/Core/Factory.h>
+#include <RmlUi/Core/StreamMemory.h>
+#include <RmlUi/Core/XMLParser.h>
 #include <doctest.h>
 
 using namespace Rml;
@@ -58,6 +60,8 @@ TEST_CASE("XMLParser")
 {
 	Context* context = TestsShell::GetContext();
 	REQUIRE(context);
+	REQUIRE(XMLParser::GetNodeHandler("select"));
+	CHECK(XMLParser::GetNodeHandler("SeLeCt") == XMLParser::GetNodeHandler("select"));
 
 	// Style nodes should accept XML reserved characters, see https://github.com/mikke89/RmlUi/issues/341
 
@@ -182,15 +186,38 @@ TEST_CASE("XMLParser.invalid.extra_closing")
 	Context* context = TestsShell::GetContext();
 	REQUIRE(context);
 
-	TestsShell::SetNumExpectedWarnings(3);
+	TestsShell::SetNumExpectedWarnings(1);
 
 	ElementDocument* document = context->LoadDocumentFromMemory(document_source);
-	REQUIRE(document);
-
-	CHECK(document->GetInnerRML() == R"(_icon class=&quot;exit&quot;&gt;)");
-
-	document->Close();
+	CHECK_FALSE(document);
 	context->Update();
 
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("XMLParser.fragment_rollback")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory("<rml><body><div id='existing'/></body></rml>");
+	REQUIRE(document);
+	Element* existing = document->GetFirstChild();
+	REQUIRE(existing);
+
+	TestsShell::SetNumExpectedWarnings(5);
+	for (const String& input : {String("<body><p/><div>"), String("<body><p/><div></body>"),
+		String("<body><p/><!-- unfinished"), String("<body><p/><![CDATA[unfinished")})
+	{
+		StreamMemory stream(reinterpret_cast<const byte*>(input.data()), input.size());
+		CHECK_FALSE(Factory::InstanceElementStream(document, &stream));
+		CHECK(document->GetNumChildren() == 1);
+		CHECK(document->GetFirstChild() == existing);
+	}
+	CHECK_FALSE(Factory::InstanceElementText(document, "<p/><div>"));
+	CHECK(document->GetNumChildren() == 1);
+	CHECK(Factory::InstanceElementText(document, "<p/><div>ok</div>"));
+	CHECK(document->GetNumChildren() == 3);
+	CHECK(document->GetFirstChild() == existing);
+	document->Close();
 	TestsShell::ShutdownShell();
 }

@@ -22,6 +22,7 @@ int ElementAttributesProxy__index(lua_State* L)
 	{
 		ElementAttributesProxy* obj = LuaType<ElementAttributesProxy>::check(L, 1);
 		RMLUI_CHECK_OBJ(obj);
+		RMLUI_CHECK_OBJ(obj->owner.get());
 		const char* key = lua_tostring(L, 2);
 		Variant* attr = obj->owner->GetAttribute(key);
 		PushVariant(L, attr); // Utilities.h
@@ -35,7 +36,17 @@ int ElementAttributesProxy__pairs(lua_State* L)
 {
 	ElementAttributesProxy* obj = LuaType<ElementAttributesProxy>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	return MakePairs(L, obj->owner->GetAttributes());
+	RMLUI_CHECK_OBJ(obj->owner.get());
+	// Snapshot attributes so iteration remains valid after the element changes or dies.
+	lua_getglobal(L, "next");
+	lua_newtable(L);
+	for (const auto& attribute : obj->owner->GetAttributes())
+	{
+		PushVariant(L, &attribute.second);
+		lua_setfield(L, -2, attribute.first.c_str());
+	}
+	lua_pushnil(L);
+	return 3;
 }
 
 RegType<ElementAttributesProxy> ElementAttributesProxyMethods[] = {

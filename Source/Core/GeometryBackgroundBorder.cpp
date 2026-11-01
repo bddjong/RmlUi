@@ -44,10 +44,10 @@ BorderMetrics GeometryBackgroundBorder::ComputeBorderMetrics(Vector2f outer_posi
 
 		// Scale the radii such that we have no overlapping curves.
 		float scale_factor = FLT_MAX;
-		scale_factor = Math::Min(scale_factor, inner_size.x / (outer_radii[TOP_LEFT] + outer_radii[TOP_RIGHT]));       // Top
-		scale_factor = Math::Min(scale_factor, inner_size.y / (outer_radii[TOP_RIGHT] + outer_radii[BOTTOM_RIGHT]));   // Right
-		scale_factor = Math::Min(scale_factor, inner_size.x / (outer_radii[BOTTOM_RIGHT] + outer_radii[BOTTOM_LEFT])); // Bottom
-		scale_factor = Math::Min(scale_factor, inner_size.y / (outer_radii[BOTTOM_LEFT] + outer_radii[TOP_LEFT]));     // Left
+		scale_factor = Math::Min(scale_factor, outer_size.x / (outer_radii[TOP_LEFT] + outer_radii[TOP_RIGHT]));       // Top
+		scale_factor = Math::Min(scale_factor, outer_size.y / (outer_radii[TOP_RIGHT] + outer_radii[BOTTOM_RIGHT]));   // Right
+		scale_factor = Math::Min(scale_factor, outer_size.x / (outer_radii[BOTTOM_RIGHT] + outer_radii[BOTTOM_LEFT])); // Bottom
+		scale_factor = Math::Min(scale_factor, outer_size.y / (outer_radii[BOTTOM_LEFT] + outer_radii[TOP_LEFT]));     // Left
 		scale_factor = Math::Min(1.0f, scale_factor);
 
 		for (float& radius : outer_radii)

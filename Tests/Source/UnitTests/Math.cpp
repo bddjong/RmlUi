@@ -1,6 +1,9 @@
 #include <RmlUi/Core/Math.h>
+#include <RmlUi/Core/TransformPrimitive.h>
+#include "../../../Source/Core/TransformUtilities.h"
 #include <RmlUi/Core/Types.h>
 #include <doctest.h>
+#include <limits>
 
 using namespace Rml;
 
@@ -153,4 +156,66 @@ TEST_CASE("Math.Round")
 	CHECK(Math::Round(-100000.49f) == -100000.f);
 	CHECK(Math::Round(-100000.50f) == -100000.f);
 	CHECK(Math::Round(-100000.51f) == -100001.f);
+}
+
+TEST_CASE("Math.RandomReal.exclusive_upper_bound")
+{
+	const float limit = std::numeric_limits<float>::denorm_min();
+	for (int i = 0; i < 1000; ++i)
+		CHECK(Math::RandomReal(limit) < limit);
+}
+
+TEST_CASE("Vector4 scalar compound operations preserve aliased scalar")
+{
+	Vector4f a(2, 4, 6, 8);
+	a *= a.x;
+	CHECK(a == Vector4f(4, 8, 12, 16));
+	Vector4f b(2, 4, 6, 8);
+	b /= b.x;
+	CHECK(b == Vector4f(1, 2, 3, 4));
+	Vector3f c(2, 4, 6);
+	c *= c.x;
+	CHECK(c == Vector3f(4, 8, 12));
+}
+
+TEST_CASE("Math.transform_quaternion_interpolation")
+{
+	Transforms::DecomposedMatrix4 a{};
+	a.quaternion = Vector4f(0, 0, 0, 1);
+	Transforms::DecomposedMatrix4 b = a;
+	b.quaternion = Vector4f(0, 0, 0.01f, 0.99995f).Normalise();
+	TransformPrimitive target(a), other(b);
+	REQUIRE(TransformUtilities::InterpolateWith(target, other, 1.f));
+	CHECK(target.decomposed_matrix_4.quaternion.z == doctest::Approx(b.quaternion.z));
+
+	b.quaternion = a.quaternion * -1.f;
+	target = TransformPrimitive(a);
+	other = TransformPrimitive(b);
+	REQUIRE(TransformUtilities::InterpolateWith(target, other, 0.5f));
+	CHECK(target.decomposed_matrix_4.quaternion.w == doctest::Approx(1.f));
+}
+
+TEST_CASE("Matrix4 proxy assignment and transpose")
+{
+	using Matrix = Rml::Matrix4f;
+	Matrix m = Matrix::FromRows({1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16});
+	auto transposed = m.Transpose();
+	CHECK(transposed.GetRow(0)[1] == 5);
+	CHECK(transposed.GetRow(1)[0] == 2);
+	m.GetRow(0) = m.GetRow(1);
+	m.GetColumn(0) = m.GetColumn(1);
+	CHECK(m.GetRow(0)[0] == 6);
+	CHECK(m.GetRow(2)[0] == 10);
+}
+
+TEST_CASE("Math.RandomIntegerLimits")
+{
+	CHECK(Math::RandomInteger(0) == 0);
+	CHECK(Math::RandomInteger(-1) == 0);
+	for (int i = 0; i < 100; ++i)
+	{
+		const int value = Math::RandomInteger(3);
+		CHECK(value >= 0);
+		CHECK(value < 3);
+	}
 }

@@ -1,4 +1,5 @@
 #include "FontEffectOutline.h"
+#include "FontEffectLimits.h"
 #include "../../Include/RmlUi/Core/PropertyDefinition.h"
 
 namespace Rml {
@@ -18,7 +19,7 @@ bool FontEffectOutline::HasUniqueTexture() const
 
 bool FontEffectOutline::Initialise(int _width)
 {
-	if (_width <= 0)
+	if (_width <= 0 || _width > FontEffectLimits::max_width)
 		return false;
 
 	width = _width;
@@ -46,18 +47,7 @@ bool FontEffectOutline::Initialise(int _width)
 
 bool FontEffectOutline::GetGlyphMetrics(Vector2i& origin, Vector2i& dimensions, const FontGlyph& /*glyph*/) const
 {
-	if (dimensions.x * dimensions.y > 0)
-	{
-		origin.x -= width;
-		origin.y -= width;
-
-		dimensions.x += 2 * width;
-		dimensions.y += 2 * width;
-
-		return true;
-	}
-
-	return false;
+	return FontEffectLimits::ExpandMetrics(origin, dimensions, width);
 }
 
 void FontEffectOutline::GenerateGlyphTexture(byte* destination_data, const Vector2i destination_dimensions, int destination_stride,
@@ -83,8 +73,12 @@ SharedPtr<FontEffect> FontEffectOutlineInstancer::InstanceFontEffect(const Strin
 	float width = properties.GetProperty(id_width)->Get<float>();
 	Colourb color = properties.GetProperty(id_color)->Get<Colourb>();
 
+	int width_int;
+	if (!FontEffectLimits::ConvertWidth(width, width_int))
+		return nullptr;
+
 	auto font_effect = MakeShared<FontEffectOutline>();
-	if (font_effect->Initialise(int(width)))
+	if (font_effect->Initialise(width_int))
 	{
 		font_effect->SetColour(color);
 		return font_effect;

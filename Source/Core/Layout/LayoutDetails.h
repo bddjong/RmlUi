@@ -119,8 +119,8 @@ private:
 	/// @param[in] computed The computed values of the element the box is being generated for.
 	/// @param[in] min_height The minimum content height of the element.
 	/// @param[in] max_height The maximum content height of the element.
-	/// @param[in] containing_block_height The height of the containing block.
-	static void BuildBoxHeight(Box& box, const ComputedValues& computed, float min_height, float max_height, float containing_block_height);
+	/// @param[in] containing_block The dimensions of the containing block.
+	static void BuildBoxHeight(Box& box, const ComputedValues& computed, float min_height, float max_height, Vector2f containing_block);
 };
 
 } // namespace Rml

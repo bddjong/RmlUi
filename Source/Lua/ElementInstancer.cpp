@@ -29,6 +29,7 @@ int ElementInstancerSetAttrInstanceElement(lua_State* L)
 		return 0;
 	}
 	lei->PushFunctionsTable(L); // top of the stack is now ELEMENTINSTANCERFUNCTIONS table
+	luaL_unref(L, -1, lei->ref_InstanceElement);
 	lua_pushvalue(L, 2);        // copy of the function
 	lei->ref_InstanceElement = luaL_ref(L, -2);
 	lua_pop(L, 1);              // pop the ELEMENTINSTANCERFUNCTIONS table

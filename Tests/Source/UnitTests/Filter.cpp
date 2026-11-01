@@ -119,6 +119,7 @@ TEST_CASE("filter")
 		{"c", {1.f, Unit::DP}},
 		{"d", {1.f, Unit::DP}},
 	};
+	auto remaining_filters = expected_compiled_filters;
 	for (const auto& compiled_filter : compiled_test_filters)
 	{
 		INFO("ID #", compiled_filter.element_id);
@@ -132,7 +133,10 @@ TEST_CASE("filter")
 		const ExpectedCompiledFilter& expected = it->second;
 		CHECK(compiled_filter.filter->value == expected.value);
 		CHECK(compiled_filter.filter->unit == expected.unit);
+		CHECK(remaining_filters.erase(compiled_filter.element_id) == 1);
 	}
+
+	CHECK(remaining_filters.empty());
 
 	// Check that filters are not compiled more than once for each element.
 	CHECK(compiled_test_filters.size() == expected_compiled_filters.size());

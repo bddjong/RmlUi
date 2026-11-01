@@ -112,6 +112,7 @@ static SBLevel CopyLevels(SBLevel *destination,
 
         if (level != lastLevel) {
             totalRuns += 1;
+            lastLevel = level;
 
             if (level > maxLevel) {
                 maxLevel = level;

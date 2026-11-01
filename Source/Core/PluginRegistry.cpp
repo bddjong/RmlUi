@@ -64,8 +64,9 @@ void PluginRegistry::NotifyInitialise()
 {
 	EnsurePluginVectorsInitialized();
 
-	for (Plugin* plugin : plugin_vectors->basic)
-		plugin->OnInitialise();
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->basic))
+		if (plugin_vectors && std::find(plugin_vectors->basic.begin(), plugin_vectors->basic.end(), plugin) != plugin_vectors->basic.end())
+			plugin->OnInitialise();
 }
 
 void PluginRegistry::NotifyShutdown()
@@ -82,56 +83,65 @@ void PluginRegistry::NotifyShutdown()
 
 void PluginRegistry::NotifyContextCreate(Context* context)
 {
-	for (Plugin* plugin : plugin_vectors->basic)
-		plugin->OnContextCreate(context);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->basic))
+		if (plugin_vectors && std::find(plugin_vectors->basic.begin(), plugin_vectors->basic.end(), plugin) != plugin_vectors->basic.end())
+			plugin->OnContextCreate(context);
 }
 
 void PluginRegistry::NotifyContextDestroy(Context* context)
 {
-	for (Plugin* plugin : plugin_vectors->basic)
-		plugin->OnContextDestroy(context);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->basic))
+		if (plugin_vectors && std::find(plugin_vectors->basic.begin(), plugin_vectors->basic.end(), plugin) != plugin_vectors->basic.end())
+			plugin->OnContextDestroy(context);
 }
 
 void PluginRegistry::NotifyDocumentOpen(Context* context, const String& document_path)
 {
-	for (Plugin* plugin : plugin_vectors->document)
-		plugin->OnDocumentOpen(context, document_path);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->document))
+		if (plugin_vectors && std::find(plugin_vectors->document.begin(), plugin_vectors->document.end(), plugin) != plugin_vectors->document.end())
+			plugin->OnDocumentOpen(context, document_path);
 }
 
 void PluginRegistry::NotifyDocumentLoad(ElementDocument* document)
 {
-	for (Plugin* plugin : plugin_vectors->document)
-		plugin->OnDocumentLoad(document);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->document))
+		if (plugin_vectors && std::find(plugin_vectors->document.begin(), plugin_vectors->document.end(), plugin) != plugin_vectors->document.end())
+			plugin->OnDocumentLoad(document);
 }
 
 void PluginRegistry::NotifyDocumentUnload(ElementDocument* document)
 {
-	for (Plugin* plugin : plugin_vectors->document)
-		plugin->OnDocumentUnload(document);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->document))
+		if (plugin_vectors && std::find(plugin_vectors->document.begin(), plugin_vectors->document.end(), plugin) != plugin_vectors->document.end())
+			plugin->OnDocumentUnload(document);
 }
 
 void PluginRegistry::NotifyElementCreate(Element* element)
 {
-	for (Plugin* plugin : plugin_vectors->element)
-		plugin->OnElementCreate(element);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->element))
+		if (plugin_vectors && std::find(plugin_vectors->element.begin(), plugin_vectors->element.end(), plugin) != plugin_vectors->element.end())
+			plugin->OnElementCreate(element);
 }
 
 void PluginRegistry::NotifyElementDestroy(Element* element)
 {
-	for (Plugin* plugin : plugin_vectors->element)
-		plugin->OnElementDestroy(element);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->element))
+		if (plugin_vectors && std::find(plugin_vectors->element.begin(), plugin_vectors->element.end(), plugin) != plugin_vectors->element.end())
+			plugin->OnElementDestroy(element);
 }
 
 void PluginRegistry::NotifyDataModelCreate(Context* context, const String& name)
 {
-	for (Plugin* plugin : plugin_vectors->data_model)
-		plugin->OnDataModelCreate(context, name);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->data_model))
+		if (plugin_vectors && std::find(plugin_vectors->data_model.begin(), plugin_vectors->data_model.end(), plugin) != plugin_vectors->data_model.end())
+			plugin->OnDataModelCreate(context, name);
 }
 
 void PluginRegistry::NotifyDataModelDestroy(Context* context, const String& name)
 {
-	for (Plugin* plugin : plugin_vectors->data_model)
-		plugin->OnDataModelDestroy(context, name);
+	for (Plugin* plugin : Vector<Plugin*>(plugin_vectors->data_model))
+		if (plugin_vectors && std::find(plugin_vectors->data_model.begin(), plugin_vectors->data_model.end(), plugin) != plugin_vectors->data_model.end())
+			plugin->OnDataModelDestroy(context, name);
 }
 
 } // namespace Rml

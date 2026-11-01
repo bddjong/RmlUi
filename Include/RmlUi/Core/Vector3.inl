@@ -108,9 +108,10 @@ Vector3<Type>& Vector3<Type>::operator-=(const Vector3& rhs)
 template <typename Type>
 Vector3<Type>& Vector3<Type>::operator*=(const Type& rhs)
 {
-	x *= rhs;
-	y *= rhs;
-	z *= rhs;
+	const Type scalar = rhs;
+	x *= scalar;
+	y *= scalar;
+	z *= scalar;
 
 	return *this;
 }
@@ -118,9 +119,10 @@ Vector3<Type>& Vector3<Type>::operator*=(const Type& rhs)
 template <typename Type>
 Vector3<Type>& Vector3<Type>::operator/=(const Type& rhs)
 {
-	x /= rhs;
-	y /= rhs;
-	z /= rhs;
+	const Type scalar = rhs;
+	x /= scalar;
+	y /= scalar;
+	z /= scalar;
 
 	return *this;
 }

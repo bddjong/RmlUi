@@ -232,6 +232,9 @@ public:
 
 	ProgramState GetProgramState() { return ProgramState{program.size(), program_stack_size}; }
 
+	size_t GetCursor() const { return index; }
+	void SetCursor(size_t cursor) { index = cursor; reached_end = (index >= expression.size()); }
+
 	void SetProgramState(const ProgramState& state)
 	{
 		RMLUI_ASSERT(state.program_length <= program.size());
@@ -605,6 +608,7 @@ namespace Parse {
 			// Backup program state before trying to parse number inside brackets.
 			// Could turn out to be expression and needs reparsing
 			auto backup_state = parser.GetProgramState();
+			const size_t backup_cursor = parser.GetCursor();
 
 			String index = FindNumberLiteral(parser, true);
 			if (!index.empty() && parser.Look() == ']')
@@ -617,6 +621,7 @@ namespace Parse {
 			else
 			{
 				parser.SetProgramState(backup_state);
+				parser.SetCursor(backup_cursor);
 
 				parser.Emit(Instruction::Literal, Variant(prefix));
 				parser.Push();
@@ -1189,6 +1194,8 @@ bool DataExpressionInterface::SetValue(const DataAddress& address, const Variant
 	{
 		if (DataVariable variable = data_model->GetVariable(address))
 			result = variable.Set(value);
+		else if (data_model->AllowMissingVariables() && data_model->GetAllVariables().count(address.front().name) == 0)
+			return true;
 
 		if (result)
 			data_model->DirtyVariable(address.front().name);

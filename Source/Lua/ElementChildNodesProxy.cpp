@@ -27,6 +27,7 @@ int ElementChildNodesProxy__index(lua_State* L)
 	{
 		ElementChildNodesProxy* obj = LuaType<ElementChildNodesProxy>::check(L, 1);
 		RMLUI_CHECK_OBJ(obj);
+		RMLUI_CHECK_OBJ(obj->owner.get());
 		int key = (int)luaL_checkinteger(L, 2);
 		Element* child = obj->owner->GetChild(key - 1);
 		LuaType<Element>::push(L, child, false);
@@ -45,6 +46,7 @@ int ElementChildNodesProxy__len(lua_State* L)
 {
 	ElementChildNodesProxy* obj = LuaType<ElementChildNodesProxy>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
+	RMLUI_CHECK_OBJ(obj->owner.get());
 	lua_pushinteger(L, obj->owner->GetNumChildren());
 	;
 	return 1;

@@ -505,19 +505,27 @@ int RmlSDL::GetKeyModifierState()
 
 void TextInputMethodEditor_SDL::OnActivate(Rml::TextInputContext* input_context)
 {
+	if (context != input_context)
+		start = end = 0;
 	context = input_context;
 }
 
 void TextInputMethodEditor_SDL::OnDeactivate(Rml::TextInputContext* input_context)
 {
 	if (context == input_context)
+	{
 		context = nullptr;
+		start = end = 0;
+	}
 }
 
 void TextInputMethodEditor_SDL::OnDestroy(Rml::TextInputContext* input_context)
 {
 	if (context == input_context)
+	{
 		context = nullptr;
+		start = end = 0;
+	}
 }
 
 void TextInputMethodEditor_SDL::HandleEdit(const SDL_TextEditingEvent& ev)

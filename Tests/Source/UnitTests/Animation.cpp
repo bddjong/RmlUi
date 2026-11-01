@@ -1,13 +1,48 @@
 #include "../Common/TestsInterface.h"
 #include "../Common/TestsShell.h"
 #include "../Common/TypesToString.h"
+#include "../../../Source/Core/ElementAnimation.h"
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/EventListener.h>
 #include <doctest.h>
 #include <float.h>
 
 using namespace Rml;
+
+TEST_CASE("animation.rejected_tracks")
+{
+	TestsSystemInterface* system = TestsShell::GetTestsSystemInterface();
+	Context* context = TestsShell::GetContext();
+	system->SetManualTime(0.0);
+	system->SetNumExpectedWarnings(1);
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+<rml><head><style>
+@keyframes first { from { opacity: 0; } to { opacity: 1; } }
+@keyframes second { from { opacity: 0; } to { opacity: 0; } }
+div { opacity: 0; animation: 1s linear first, 1s linear second; }
+</style></head><body><div/></body></rml>)");
+	REQUIRE(document);
+	Element* element = document->GetChild(0);
+	REQUIRE(element);
+	document->Show();
+	context->Update();
+	system->SetManualTime(0.1);
+	context->Update();
+	CHECK(element->GetProperty<float>("opacity") == doctest::Approx(0.1f));
+
+	// A rejected target must leave the track identifiable as a singleton.
+	const Property* initial = element->GetProperty(PropertyId::Opacity);
+	REQUIRE(initial);
+	ElementAnimation track(PropertyId::Opacity, ElementAnimationOrigin::Animation, *initial, *element, 0, 0, 1, false);
+	CHECK_FALSE(track.HasTargetKey());
+	system->SetNumExpectedWarnings(1);
+	CHECK_FALSE(track.AddKey(1, Property(String("invalid"), Unit::STRING), *element, Tween{}, true));
+	CHECK_FALSE(track.HasTargetKey());
+	document->Close();
+	TestsShell::ShutdownShell();
+}
 
 static const String document_decorator_rml = R"(
 <rml>
@@ -989,4 +1024,67 @@ TEST_CASE("animation.transform_interpolation")
 	}
 
 	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("animation.destructive_completion_listeners")
+{
+	struct RemoveOnEnd : EventListener {
+		Element* victim = nullptr;
+		int calls = 0;
+		void ProcessEvent(Event&) override
+		{
+			++calls;
+			Element* parent = victim->GetParentNode();
+			parent->RemoveChild(victim);
+		}
+	};
+	struct CountOnEnd : EventListener {
+		int calls = 0;
+		void ProcessEvent(Event&) override { ++calls; }
+	};
+
+	for (int scenario = 0; scenario != 4; ++scenario)
+	{
+		auto* system = TestsShell::GetTestsSystemInterface();
+		auto* context = TestsShell::GetContext();
+		system->SetManualTime(0.0);
+		auto* document = context->LoadDocumentFromMemory(R"(
+<rml><head><style>
+.animated { opacity: 0; }
+</style></head><body><div id="ancestor"><div id="target" class="animated"/></div><div id="near" class="animated"/><div/><div/><div/><div/><div/><div/><div/><div/><div/><div id="sibling" class="animated"/></body></rml>)");
+		REQUIRE(document);
+		auto* target = document->GetElementById("target");
+		auto* sibling = document->GetElementById("sibling");
+		auto* near = document->GetElementById("near");
+		REQUIRE(target);
+		REQUIRE(sibling);
+		REQUIRE(near);
+		RemoveOnEnd remove;
+		remove.victim = scenario == 0 ? target : (scenario == 1 ? document->GetElementById("ancestor") : (scenario == 2 ? sibling : near));
+		CountOnEnd sibling_count;
+		CountOnEnd near_count;
+		CountOnEnd later_listener;
+		target->AddEventListener("animationend", &remove);
+		target->AddEventListener("animationend", &later_listener);
+		sibling->AddEventListener("animationend", &sibling_count);
+		near->AddEventListener("animationend", &near_count);
+		document->Show();
+		context->Update();
+		REQUIRE(target->Animate("opacity", Property(1.f, Unit::NUMBER), 1.f));
+		if (scenario < 2)
+			REQUIRE(target->Animate("width", Property(20.f, Unit::PX), 1.f));
+		REQUIRE(sibling->Animate("opacity", Property(1.f, Unit::NUMBER), 1.f));
+		REQUIRE(near->Animate("opacity", Property(1.f, Unit::NUMBER), 1.f));
+		for (int step = 1; step <= 15; ++step)
+		{
+			system->SetManualTime(step * 0.1);
+			context->Update();
+		}
+		CHECK(remove.calls == 1);
+		CHECK(sibling_count.calls == (scenario == 2 ? 0 : 1));
+		CHECK(near_count.calls == (scenario == 3 ? 0 : 1));
+		CHECK(later_listener.calls == (scenario >= 2 ? 1 : 0));
+		document->Close();
+		TestsShell::ShutdownShell();
+	}
 }

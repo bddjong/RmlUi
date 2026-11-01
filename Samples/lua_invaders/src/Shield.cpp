@@ -121,9 +121,14 @@ bool Shield::CheckHit(const Rml::Vector2f& check_position)
 
 	// If we're alive and the position is within our bounds, set ourselves
 	// as exploding and return a valid hit
-	if (health > 0 && check_position.x >= position.x && check_position.x <= position.x + sprite_size && check_position.y >= position.y &&
-		check_position.y <= position.y + sprite_size)
+	if (health > 0 && check_position.x >= position.x && check_position.x < position.x + sprite_size && check_position.y >= position.y &&
+		check_position.y < position.y + sprite_size)
 	{
+		const int x = int((check_position.x - position.x) / PIXEL_SIZE);
+		const int y = int((check_position.y - position.y) / PIXEL_SIZE);
+		if (shield_cells[x][y] != ON)
+			return false;
+
 		// Take damage.
 		SustainDamage();
 

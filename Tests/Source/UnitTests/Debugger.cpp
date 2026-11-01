@@ -111,6 +111,10 @@ TEST_CASE("debugger.focus")
 	Rml::Debugger::Initialise(context);
 
 	ElementDocument* document = context->LoadDocument("assets/demo.rml");
+	Element* content = document->GetElementById("content");
+	REQUIRE(content);
+	content->SetPseudoClass("review-one", true);
+	content->SetPseudoClass("review-two", true);
 
 	SUBCASE("Normal")
 	{
@@ -138,7 +142,21 @@ TEST_CASE("debugger.focus")
 	Element* source_element = info_document->GetSourceElement();
 	REQUIRE(source_element);
 	CHECK(source_element->GetId() == "content");
+	Element* extra = info_document->GetElementById("extra");
+	Element* attributes = info_document->GetElementById("attributes-content");
+	REQUIRE(extra);
+	REQUIRE(attributes);
+	CHECK(extra->GetNumChildren() >= 2);
+	CHECK(attributes->HasChildNodes());
 
 	document->Close();
+	// Unloaded documents are destroyed at the end of the first context update,
+	// after the debugger document has already updated.
+	context->Update();
+	CHECK(info_document->GetSourceElement() == nullptr);
+	CHECK(context->GetNextUpdateDelay() == 0.0);
+	context->Update();
+	CHECK(extra->GetNumChildren() == 0);
+	CHECK_FALSE(attributes->HasChildNodes());
 	TestsShell::ShutdownShell();
 }

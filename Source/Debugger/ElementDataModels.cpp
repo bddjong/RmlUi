@@ -88,6 +88,7 @@ ElementDataModels::~ElementDataModels()
 bool ElementDataModels::Initialise(Context* target_context)
 {
 	SetInnerRML(data_models_rml);
+	GetElementById("content")->SetInnerRML("<em>No data models in context.</em>");
 	SetId("rmlui-debug-data-models");
 
 	AddEventListener(EventId::Click, this);

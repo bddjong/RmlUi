@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <type_traits>
+#include <cerrno>
+#include <cctype>
+#include <cmath>
+#include <limits>
 
 namespace Rml {
 
@@ -17,6 +21,11 @@ enum class Unit;
 
     These converters convert from source types to destination types.
     They're mainly useful in things like dictionaries and serialisers.
+
+    String-to-number conversions consume the whole token, allowing surrounding
+    whitespace. Integer input is decimal; unsigned input cannot be negative.
+    Floating input follows strtof/strtod syntax but must be finite and must not
+    report a range error (including underflow). Failure leaves the destination unchanged.
 */
 
 template <typename SourceType, typename DestType>

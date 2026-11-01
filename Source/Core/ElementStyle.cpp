@@ -188,6 +188,7 @@ ElementStyle::SubstitutionResult ElementStyle::SubstituteVariableOnce(const Prop
 		return SubstitutionResult::NoVariablesFound;
 
 	String var_name = StringUtilities::StripWhitespace(StringView{value, begin + 4, end_name - begin - 4});
+	variable_dependencies.insert(var_name);
 	const bool cycle_detected = (!cycle_chain.insert(var_name).second);
 	if (cycle_detected)
 	{
@@ -351,12 +352,7 @@ void ElementStyle::ExpandVarShorthands(PropertyDictionary& out_substituted_short
 			cycle_chain.clear();
 
 			String substitution_result;
-			if (!SubstituteVariables(sources, property.Get<String>(), variable_dependencies, cycle_chain, substitution_result))
-				continue;
-
-			if (!StyleSheetSpecification::GetPropertySpecification().ParseShorthandDeclaration(out_substituted_shorthands, shorthand_id,
-					substitution_result))
-				continue;
+			const bool substituted = SubstituteVariables(sources, property.Get<String>(), variable_dependencies, cycle_chain, substitution_result);
 
 			if (dirty_properties.has_value())
 			{
@@ -371,6 +367,8 @@ void ElementStyle::ExpandVarShorthands(PropertyDictionary& out_substituted_short
 						dirty_properties->properties.Insert(id);
 				}
 			}
+			if (substituted)
+				StyleSheetSpecification::GetPropertySpecification().ParseShorthandDeclaration(out_substituted_shorthands, shorthand_id, substitution_result);
 		}
 	}
 }
@@ -913,6 +911,13 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
 	SmallUnorderedSet<String> variable_dependencies;
 	bool dirty_em_properties = false;
 
+	// Variable changes may affect these properties before the general property pass.
+	if (!dirty_variables.empty())
+	{
+		dirty_properties.Insert(PropertyId::FontSize);
+		dirty_properties.Insert(PropertyId::LineHeight);
+	}
+
 	// Always do font-size first if dirty, because of em-relative values
 	if (dirty_properties.Contains(PropertyId::FontSize))
 	{
@@ -977,14 +982,14 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
 		auto id_property_pair = *it;
 		const PropertyId id = id_property_pair.first;
 		const Property* property = ResolveVariables(id, &id_property_pair.second, variable_dependencies, property_storage);
-		if (!property)
-			continue;
-
 		for (const String& variable_name : variable_dependencies)
 		{
 			if (dirty_variables.count(variable_name) != 0)
 				dirty_properties.Insert(id);
 		}
+
+		if (!property)
+			continue;
 
 		if (dirty_em_properties && property->unit == Unit::EM)
 			dirty_properties.Insert(id);

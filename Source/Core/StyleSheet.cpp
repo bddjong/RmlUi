@@ -138,7 +138,7 @@ const DecoratorPtrList& StyleSheet::InstanceDecorators(RenderManager& render_man
 			auto it_map = named_decorator_map.find(declaration.type);
 			if (it_map != named_decorator_map.end())
 				decorator = it_map->second.instancer->InstanceDecorator(it_map->second.type, it_map->second.properties,
-					DecoratorInstancerInterface(render_manager, *this, source));
+					DecoratorInstancerInterface(render_manager, *this, it_map->second.source ? it_map->second.source.get() : source));
 
 			if (!decorator)
 				Log::Message(Log::LT_WARNING, "Decorator name '%s' could not be found in any @decorator rule, declared at %s:%d",

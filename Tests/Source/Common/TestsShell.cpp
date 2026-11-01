@@ -101,10 +101,9 @@ Rml::Context* TestsShell::GetContext(bool allow_debugger, Rml::RenderInterface* 
 	return shell_context;
 }
 
-void TestsShell::BeginFrame()
+bool TestsShell::BeginFrame()
 {
-	if (use_backend_shell)
-		Backend::BeginFrame();
+	return !use_backend_shell || Backend::BeginFrame();
 }
 
 void TestsShell::PresentFrame()
@@ -124,9 +123,11 @@ void TestsShell::RenderLoop(bool block_until_escape)
 		{
 			running = Backend::ProcessEvents(shell_context, &Shell::ProcessKeyDownShortcuts) && block_until_escape;
 			shell_context->Update();
-			BeginFrame();
-			shell_context->Render();
-			PresentFrame();
+			if (BeginFrame())
+			{
+				shell_context->Render();
+				PresentFrame();
+			}
 		}
 	}
 	else

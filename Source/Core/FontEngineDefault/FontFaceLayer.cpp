@@ -155,7 +155,7 @@ bool FontFaceLayer::Generate(const FontFaceHandleDefault* handle, const FontFace
 
 bool FontFaceLayer::GenerateTexture(Vector<byte>& texture_data, Vector2i& texture_dimensions, int texture_id, const FontGlyphMap& glyphs)
 {
-	if (texture_id < 0 || texture_id > texture_layout.GetNumTextures())
+	if (texture_id < 0 || texture_id >= texture_layout.GetNumTextures())
 		return false;
 
 	// Generate the texture data.

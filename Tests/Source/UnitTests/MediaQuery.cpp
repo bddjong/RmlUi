@@ -1,4 +1,5 @@
 #include "../Common/TestsShell.h"
+#include "../../../Source/Core/PropertyParserRatio.h"
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -542,4 +543,66 @@ TEST_CASE("mediaquery.theme.condition_checks")
 	document->Close();
 
 	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("mediaquery.fractional_ratio_and_negated_conjunction")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	context->SetDimensions(Vector2i(600, 400));
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+	<rml><head><style>
+	div { display: block; width: 10px; height: 10px; }
+	@media (aspect-ratio: 1.5/1) { div { width: 20px; } }
+	@media not (min-width: 500px) and (min-height: 500px) { div { height: 30px; } }
+	</style></head><body><div/></body></rml>)");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	ElementList elements;
+	document->GetElementsByTagName(elements, "div");
+	REQUIRE(elements.size() == 1);
+	CHECK(elements[0]->GetBox().GetSize() == Vector2f(20.f, 30.f));
+	context->SetDimensions(Vector2i(600, 600));
+	context->Update();
+	CHECK(elements[0]->GetBox().GetSize() == Vector2f(10.f, 10.f));
+	context->SetDimensions(Vector2i(400, 600));
+	context->Update();
+	CHECK(elements[0]->GetBox().GetSize() == Vector2f(10.f, 30.f));
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("mediaquery.invalid_features_do_not_apply")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	context->SetDimensions(Vector2i(600, 400));
+	TestsShell::SetNumExpectedWarnings(3);
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+	<rml><head><style>
+	div { display: block; width: 10px; height: 10px; }
+	@media (unknown-feature: 1) { div { width: 20px; } }
+	@media (min-width: 100px) and (unknown-feature: 1) { div { height: 20px; } }
+	@media not (unknown-feature: 1) { div { width: 30px; } }
+	</style></head><body><div/></body></rml>)");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	ElementList elements;
+	document->GetElementsByTagName(elements, "div");
+	REQUIRE(elements.size() == 1);
+	CHECK(elements[0]->GetBox().GetSize() == Vector2f(10.f, 10.f));
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("mediaquery.ratio_parser_rejects_malformed_values")
+{
+	Rml::PropertyParserRatio parser;
+	Rml::Property property;
+	Rml::ParameterMap parameters;
+	CHECK(parser.ParseValue(property, " 1.5 / 1 ", parameters));
+	for (const char* value : {"1x/2", "1/2junk", "1//2", "1/0", "-1/2", "nan/2", "1/inf", "1e999/2", "/2", "1/"})
+		CHECK_FALSE(parser.ParseValue(property, value, parameters));
 }

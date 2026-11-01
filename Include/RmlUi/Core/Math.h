@@ -204,8 +204,8 @@ namespace Math {
 	/// @param[in] max_value The limit to random value. The generated value will be guaranteed to be below this limit.
 	/// @return The random value.
 	RMLUICORE_API float RandomReal(float max_value);
-	/// Generates a random integer value between 0 and a user-specified value.
-	/// @param[in] max_value The limit to random value. The generated value will be guaranteed to be below this limit.
+	/// Generates a random integer value between 0 and a user-specified value. Returns 0 for a nonpositive limit.
+	/// @param[in] max_value The exclusive upper limit, when positive.
 	/// @return The random value.
 	RMLUICORE_API int RandomInteger(int max_value);
 	/// Generates a random boolean value, with an equal chance of true or false.

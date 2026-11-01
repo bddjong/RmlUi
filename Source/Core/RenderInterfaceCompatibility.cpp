@@ -110,30 +110,44 @@ void RenderInterfaceAdapter::ReleaseGeometry(CompiledGeometryHandle handle)
 
 void RenderInterfaceAdapter::EnableScissorRegion(bool enable)
 {
-	legacy.EnableScissorRegion(enable);
+	scissor_enabled = enable;
+	ApplyClipState();
 }
 
 void RenderInterfaceAdapter::SetScissorRegion(Rectanglei region)
 {
-	legacy.SetScissorRegion(region.Left(), region.Top(), region.Width(), region.Height());
+	scissor_region = region;
+	ApplyClipState();
 }
 
 void RenderInterfaceAdapter::EnableClipMask(bool enable)
 {
-	legacy.EnableScissorRegion(enable);
+	clip_mask_enabled = enable;
+	ApplyClipState();
+}
+
+void RenderInterfaceAdapter::ApplyClipState()
+{
+	const bool use_mask = clip_mask_enabled && clip_mask_bounded;
+	const bool enabled = scissor_enabled || use_mask;
+	if (enabled)
+	{
+		Rectanglei region = scissor_enabled ? scissor_region : clip_mask_region;
+		if (scissor_enabled && use_mask)
+			region = region.Intersect(clip_mask_region);
+		legacy.SetScissorRegion(region.Left(), region.Top(), region.Width(), region.Height());
+	}
+	legacy.EnableScissorRegion(enabled);
 }
 
 void RenderInterfaceAdapter::RenderToClipMask(ClipMaskOperation operation, CompiledGeometryHandle handle, Vector2f translation)
 {
-	switch (operation)
+	if (operation == ClipMaskOperation::SetInverse)
 	{
-	case ClipMaskOperation::Set:
-	case ClipMaskOperation::Intersect:
-		// Intersect is considered like Set. This typically occurs in nested clipping situations, which never worked
-		// correctly in legacy.
-		break;
-	case ClipMaskOperation::SetInverse:
-		// Using features not supported in legacy, bail out.
+		// The exterior of a shape cannot be represented by one scissor rectangle.
+		// Approximate it as unbounded, replacing any previous mask.
+		clip_mask_bounded = false;
+		ApplyClipState();
 		return;
 	}
 
@@ -141,12 +155,21 @@ void RenderInterfaceAdapter::RenderToClipMask(ClipMaskOperation operation, Compi
 	// geometry's rectangular coverage.
 	const AdaptedGeometry* geometry = reinterpret_cast<AdaptedGeometry*>(handle);
 
+	if (geometry->vertices.empty())
+	{
+		clip_mask_region = Rectanglei::FromSize(Vector2i(0));
+		clip_mask_bounded = true;
+		ApplyClipState();
+		return;
+	}
 	Rectanglef rectangle = Rectanglef::FromPosition(geometry->vertices[0].position);
 	for (const Vertex& vertex : geometry->vertices)
 		rectangle = rectangle.Join(vertex.position);
 
-	const Rectanglei scissor = Rectanglei(rectangle.Translate(translation));
-	legacy.SetScissorRegion(scissor.Left(), scissor.Top(), scissor.Width(), scissor.Height());
+	const Rectanglei bounds = Rectanglei(rectangle.Translate(translation));
+	clip_mask_region = operation == ClipMaskOperation::Intersect && clip_mask_bounded ? clip_mask_region.Intersect(bounds) : bounds;
+	clip_mask_bounded = true;
+	ApplyClipState();
 }
 
 TextureHandle RenderInterfaceAdapter::LoadTexture(Vector2i& texture_dimensions, const String& source)

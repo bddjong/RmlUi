@@ -297,6 +297,7 @@ protected:
 	void Release() override;
 
 private:
+	ElementDocument* LoadDocumentFromStream(Stream* stream);
 	String name;
 	Vector2i dimensions;
 	float density_independent_pixel_ratio = 1.f;

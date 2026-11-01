@@ -12,7 +12,7 @@ namespace TestsShell {
 // Will initialize the shell and create a context on first use.
 Rml::Context* GetContext(bool allow_debugger = true, Rml::RenderInterface* override_render_interface = nullptr);
 
-void BeginFrame();
+bool BeginFrame();
 void PresentFrame();
 
 // Render the current state of the context. Press 'escape' or 'return' to break out of the loop.

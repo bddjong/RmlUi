@@ -2,6 +2,7 @@
 #include "ControlledLifetimeResource.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <string.h>
 #include <utility>
 
@@ -163,12 +164,12 @@ bool PropertyParserColour::ParseValue(Property& property, const String& value, c
 	return true;
 }
 
-bool PropertyParserColour::ParseColour(Colourb& colour, const String& value)
+bool PropertyParserColour::ParseColour(Colourb& output, const String& value)
 {
 	if (value.empty())
 		return false;
 
-	colour = {};
+	Colourb colour = {};
 
 	if (value[0] == '#')
 	{
@@ -205,6 +206,7 @@ bool PropertyParserColour::ParseColour(Colourb& colour, const String& value)
 			colour = it->second;
 	}
 
+	output = colour;
 	return true;
 }
 
@@ -274,16 +276,10 @@ bool PropertyParserColour::ParseRGBColour(Colourb& colour, const String& value)
 	// Parse the RGBA values.
 	for (int i = 0; i < 4; ++i)
 	{
-		int component;
-
-		// We're parsing a percentage value.
-		if (values[i].size() > 0 && values[i][values[i].size() - 1] == '%')
-			component = int((float)atof(values[i].substr(0, values[i].size() - 1).c_str()) * (255.0f / 100.0f));
-		// We're parsing a 0 -> 255 integer value.
-		else
-			component = atoi(values[i].c_str());
-
-		colour[i] = (byte)(Math::Clamp(component, 0, 255));
+		double component = std::strtod(values[i].c_str(), nullptr);
+		if (values[i].back() == '%')
+			component *= 255.0 / 100.0;
+		colour[i] = (byte)Math::Clamp(component, 0.0, 255.0);
 	}
 
 	return true;
@@ -538,10 +534,26 @@ bool PropertyParserColour::GetColourFunctionValues(StringList& values, const Str
 		return false;
 
 	size_t begin_values = find + 1;
+	const size_t end_values = value.find(')', begin_values);
+	if (end_values == String::npos || end_values != value.size() - 1)
+		return false;
 
-	StringUtilities::ExpandString(values, value.substr(begin_values, value.rfind(')') - begin_values), is_comma_separated ? ',' : ' ',
+	StringUtilities::ExpandString(values, value.substr(begin_values, end_values - begin_values), is_comma_separated ? ',' : ' ',
 		!is_comma_separated);
 
+	for (const String& token : values)
+	{
+		if ((token == "none" || token == "/") && !is_comma_separated)
+			continue;
+		char* end = nullptr;
+		const float number = std::strtof(token.c_str(), &end);
+		if (end == token.c_str() || !std::isfinite(number))
+			return false;
+		if (*end == '%')
+			++end;
+		if (*end != '\0')
+			return false;
+	}
 	return true;
 }
 

@@ -54,7 +54,7 @@ static RunQueueListRef AllocateRunQueueListPool(RunQueueRef queue)
         previous = current;
 
         /* Middle elements. */
-        for (index = 1; index < listCount - 1; index++) {
+        for (index = 1; index < listCount; index++) {
             current = &pool[index];
             current->previous = previous;
             previous->next = current;
@@ -62,7 +62,6 @@ static RunQueueListRef AllocateRunQueueListPool(RunQueueRef queue)
         }
 
         /* Last element. */
-        current->previous = previous;
         current->next = NULL;
     }
 
@@ -226,6 +225,18 @@ SB_INTERNAL void RunQueueDequeue(RunQueueRef queue)
 {
     /* The queue should not be empty. */
     SBAssert(queue->count > 0);
+
+    if (queue->count == 1) {
+        /* Keep the final list as the empty queue's rear, including at a boundary. */
+        queue->_rearList = queue->_front.list;
+        queue->_rearList->previous = NULL;
+        queue->_rearList->next = NULL;
+        queue->_rearTop = SBInvalidIndex;
+        queue->_front = InvalidRunQueuePosition;
+        queue->_lastPartialRun = InvalidRunQueuePosition;
+        queue->count = 0;
+        return;
+    }
 
     if ((queue->_front.index + 1) < RunQueueListElementCount) {
         queue->_front.index += 1;

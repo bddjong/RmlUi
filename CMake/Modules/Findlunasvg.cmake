@@ -15,6 +15,7 @@
 ]]
 
 include(FindPackageHandleStandardArgs)
+include(SelectLibraryConfigurations)
 
 if(NOT TARGET lunasvg::lunasvg)
 	# Look for lunasvg 3.0+ official config
@@ -56,10 +57,7 @@ else()
 		HINTS $ENV{LUNASVG_DIR} $ENV{LUNASVG_DIR}/build
 		PATH_SUFFIXES release Release)
 
-	set(LUNASVG_LIBRARY
-		debug ${LUNASVG_LIBRARY_DEBUG}
-		optimized ${LUNASVG_LIBRARY_RELEASE}
-	)
+	select_library_configurations(LUNASVG)
 
 	find_package_handle_standard_args(lunasvg DEFAULT_MSG
 		LUNASVG_LIBRARY LUNASVG_INCLUDE_DIR)

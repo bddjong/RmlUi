@@ -52,16 +52,28 @@ void ElementTabSet::RemoveTab(int tab_index)
 		return;
 
 	Element* panels = GetChildByTag("panels");
+	Element* tabs = GetChildByTag("tabs");
+	if (tab_index >= panels->GetNumChildren() && tab_index >= tabs->GetNumChildren())
+		return;
+
+	const int previous_active = active_tab;
+	if (tab_index == active_tab)
+		SetActiveTab(-1);
+
 	if (panels->GetNumChildren() > tab_index)
 	{
 		panels->RemoveChild(panels->GetChild(tab_index));
 	}
 
-	Element* tabs = GetChildByTag("tabs");
 	if (tabs->GetNumChildren() > tab_index)
 	{
 		tabs->RemoveChild(tabs->GetChild(tab_index));
 	}
+
+	if (tab_index < previous_active)
+		active_tab--;
+	else if (tab_index == previous_active && tabs->GetNumChildren() > 0)
+		SetActiveTab(Math::Min(tab_index, tabs->GetNumChildren() - 1));
 }
 
 int ElementTabSet::GetNumTabs()

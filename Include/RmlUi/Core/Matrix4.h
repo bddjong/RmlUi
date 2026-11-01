@@ -22,6 +22,7 @@ struct MatrixStorageBase {
 	public:
 		inline StrideVector(VectorsType& vectors, int idx) noexcept : vectors(vectors), idx(idx) {}
 		inline ComponentType& operator[](int i) noexcept { return vectors[i][idx]; }
+		inline const ComponentType& operator[](int i) const noexcept { return vectors[i][idx]; }
 		inline StrideVector& operator=(const VectorType& vec) noexcept
 		{
 			(*this)[0] = vec[0];
@@ -30,6 +31,7 @@ struct MatrixStorageBase {
 			(*this)[3] = vec[3];
 			return *this;
 		}
+		inline StrideVector& operator=(const StrideVector& other) noexcept { return *this = VectorType(other); }
 		operator const VectorType() const noexcept { return VectorType((*this)[0], (*this)[1], (*this)[2], (*this)[3]); }
 	};
 	class StrideAccess {
@@ -62,6 +64,7 @@ struct MatrixStorageBase {
 	public:
 		inline PackedVector(VectorType& vector) noexcept : vector(vector) {}
 		inline ComponentType& operator[](int i) noexcept { return vector[i]; }
+		inline PackedVector& operator=(const PackedVector& other) noexcept { return *this = other.vector; }
 		inline PackedVector& operator=(const VectorType& vec) noexcept
 		{
 			vector = vec;
@@ -272,7 +275,7 @@ public:
 
 	/// Returns the transpose of this matrix.
 	/// @return The transpose matrix.
-	inline const TransposeType& Transpose() const noexcept { return reinterpret_cast<const TransposeType&>(*this); }
+	inline TransposeType Transpose() const noexcept { return TransposeType(vectors[0], vectors[1], vectors[2], vectors[3]); }
 
 	/// Inverts this matrix in place, if possible.
 	/// @return true, if the inversion succeeded.
@@ -353,7 +356,7 @@ public:
 	inline const ThisType operator/(Component other) const noexcept
 	{
 		ThisType result(*this);
-		result *= other;
+		result /= other;
 		return result;
 	}
 

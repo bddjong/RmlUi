@@ -218,7 +218,7 @@ static void ShrinkRangeToExcludeLastParagraph(AttributeManagerRef manager,
     paragraphEnd = paragraphStart + textParagraph->length;
 
     /* Exclude paragraph if not fully covered */
-    if (paragraphEnd < *rangeEnd) {
+    if (paragraphEnd > *rangeEnd) {
         *rangeEnd = paragraphStart;
 
         /* Clamp to rangeStart */

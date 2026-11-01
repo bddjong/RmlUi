@@ -44,14 +44,13 @@ To proceed without scratch memory, manually define `SB_CONFIG_DISABLE_SCRATCH_ME
 #ifdef USE_SCRATCH_MEMORY
 
 typedef struct _Buffer {
-    struct _Buffer *next;
     SBUInteger offset;
     SBUInt8 data[SB_CONFIG_SCRATCH_BUFFER_SIZE];
 } Buffer, *BufferRef;
 typedef AtomicPointerType(Buffer) AtomicBufferRef;
 
 static Buffer BufferPool[SB_CONFIG_SCRATCH_POOL_SIZE];
-static AtomicBufferRef BufferStack = NULL;
+static AtomicBufferRef AvailableBuffers[SB_CONFIG_SCRATCH_POOL_SIZE];
 static ThreadLocalStorage ScratchBuffer;
 
 #define ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
@@ -60,14 +59,10 @@ static void InitializeBufferStack(void *info)
 {
     SBUInteger index;
 
-    for (index = 0; index < SB_CONFIG_SCRATCH_POOL_SIZE - 1; index++) {
-        BufferPool[index].next = &BufferPool[index + 1];
+    for (index = 0; index < SB_CONFIG_SCRATCH_POOL_SIZE; index++) {
         BufferPool[index].offset = 0;
+        AtomicPointerStore(&AvailableBuffers[index], &BufferPool[index]);
     }
-
-    BufferPool[SB_CONFIG_SCRATCH_POOL_SIZE - 1].next = NULL;
-    BufferPool[SB_CONFIG_SCRATCH_POOL_SIZE - 1].offset = 0;
-    AtomicPointerStore(&BufferStack, &BufferPool[0]);
 }
 
 static SBBoolean TryLazyInitializeBufferStack(void)
@@ -78,36 +73,27 @@ static SBBoolean TryLazyInitializeBufferStack(void)
 
 static BufferRef DetachBuffer(void)
 {
-    BufferRef buffer = NULL;
+    SBUInteger index;
 
-    if (TryLazyInitializeBufferStack()) {
-        BufferRef expected = NULL;
-
-        do {
-            buffer = AtomicPointerLoad(&BufferStack);
-            expected = buffer;
-
-            if (!buffer) {
-                break;
-            }
-        } while (!AtomicPointerCompareAndSet(&BufferStack, &expected, buffer->next));
+    if (!TryLazyInitializeBufferStack()) {
+        return NULL;
     }
 
-    return buffer;
+    for (index = 0; index < SB_CONFIG_SCRATCH_POOL_SIZE; index++) {
+        BufferRef expected = &BufferPool[index];
+        if (AtomicPointerCompareAndSet(&AvailableBuffers[index], &expected, NULL)) {
+            return &BufferPool[index];
+        }
+    }
+
+    return NULL;
 }
 
 static void RecycleBuffer(BufferRef buffer)
 {
-    BufferRef top;
-    BufferRef expected;
-
+    SBUInteger index = (SBUInteger)(buffer - BufferPool);
     buffer->offset = 0;
-
-    do {
-        top = AtomicPointerLoad(&BufferStack);
-        expected = top;
-        buffer->next = top;
-    } while (!AtomicPointerCompareAndSet(&BufferStack, &expected, buffer));
+    AtomicPointerStore(&AvailableBuffers[index], buffer);
 }
 
 static void InitializeScratchBuffer(void *info)

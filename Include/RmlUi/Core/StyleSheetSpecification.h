@@ -32,8 +32,10 @@ public:
 	/// @param[in] default_value The default value to be used for an element if it has no other definition provided.
 	/// @param[in] inherited True if this property is inherited from parent to child, false otherwise.
 	/// @param[in] forces_layout True if a change in this property on an element will cause the element's layout to possibly change.
-	/// @return The new property definition, ready to have parsers attached.
+	/// @return The new property definition, ready to have parsers attached. Aborts if registration fails.
 	static PropertyDefinition& RegisterProperty(const String& property_name, const String& default_value, bool inherited, bool forces_layout = false);
+	/// Returns nullptr on invalid or duplicate name or exhausted capacity; leaves existing registrations unchanged.
+	static PropertyDefinition* TryRegisterProperty(const String& property_name, const String& default_value, bool inherited, bool forces_layout = false);
 	/// Returns a property definition.
 	/// @param[in] property_name The name of the desired property.
 	/// @return The appropriate property definition if it could be found, nullptr otherwise.

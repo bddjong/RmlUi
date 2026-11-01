@@ -89,11 +89,11 @@ inline int ipairsaux(lua_State* L)
 	lua_Integer i = luaL_checkinteger(L, 2) + 1;
 	lua_pushinteger(L, i);
 #if LUA_VERSION_NUM >= 503
-	return (lua_geti(L, 1, i) == LUA_TNIL) ? 1 : 2;
+	return (lua_geti(L, 1, i) == LUA_TNIL) ? 0 : 2;
 #else
 	lua_pushinteger(L, i);
 	lua_gettable(L, 1);
-	return (lua_isnil(L, -1)) ? 1 : 2;
+	return (lua_isnil(L, -1)) ? 0 : 2;
 #endif
 }
 
