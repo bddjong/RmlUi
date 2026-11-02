@@ -506,6 +506,33 @@ bool WidgetTextInput::IsFocused() const
 	return cursor_timer > 0;
 }
 
+void WidgetTextInput::PrepareForTypeReplacement()
+{
+	if (IsFocused())
+		ShowCursor(false);
+}
+
+void WidgetTextInput::ActivateFocus()
+{
+	parent->SetPseudoClass("focus-visible", true);
+	if (UpdateSelection(false))
+		FormatText();
+	ShowCursor(true);
+	if (TextInputHandler* handler = GetTextInputHandler())
+	{
+		if (!text_input_context)
+			text_input_context = MakeUnique<WidgetTextInputContext>(handler, this, parent);
+		handler->OnActivate(text_input_context.get());
+	}
+}
+
+void WidgetTextInput::RestoreFocus()
+{
+	Context* context = parent->GetContext();
+	if (context && context->GetFocusElement() == parent && !parent->IsDisabled() && !IsFocused())
+		ActivateFocus();
+}
+
 void WidgetTextInput::DispatchChangeEvent(bool linebreak)
 {
 	Dictionary parameters;
@@ -516,7 +543,9 @@ void WidgetTextInput::DispatchChangeEvent(bool linebreak)
 
 void WidgetTextInput::ProcessEvent(Event& event)
 {
-	if (parent->IsDisabled())
+	// Disabling a focused control triggers blur after its disabled attribute is
+	// set. Still process that blur so the IME and keyboard are deactivated.
+	if (parent->IsDisabled() && event.GetId() != EventId::Blur)
 		return;
 
 	switch (event.GetId())
@@ -661,21 +690,7 @@ void WidgetTextInput::ProcessEvent(Event& event)
 	case EventId::Focus:
 	{
 		if (event.GetTargetElement() == parent)
-		{
-			parent->SetPseudoClass("focus-visible", true);
-			if (UpdateSelection(false))
-				FormatText();
-			ShowCursor(true);
-
-			if (TextInputHandler* handler = GetTextInputHandler())
-			{
-				// Lazily instance the text input context for this widget.
-				if (!text_input_context)
-					text_input_context = MakeUnique<WidgetTextInputContext>(handler, this, parent);
-
-				handler->OnActivate(text_input_context.get());
-			}
-		}
+			ActivateFocus();
 	}
 	break;
 	case EventId::Blur:

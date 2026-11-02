@@ -256,3 +256,66 @@ TEST_CASE("event_listener.same_listener_in_both_phases")
 	document->Close();
 	TestsShell::ShutdownShell();
 }
+
+TEST_CASE("event_listener.attribute_capture_and_bubble_are_independent")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory(
+		"<rml><body><div id='parent'><button id='child'/></div></body></rml>");
+	REQUIRE(document);
+	Element* parent = document->GetElementById("parent");
+	Element* child = document->GetElementById("child");
+	REQUIRE(parent);
+	REQUIRE(child);
+	struct Instancer : EventListenerInstancer {
+		Vector<String> calls, detached;
+		struct Listener : EventListener {
+			Instancer* owner;
+			String value;
+			Listener(Instancer* owner, const String& value) : owner(owner), value(value) {}
+			void ProcessEvent(Event&) override { owner->calls.push_back(value); }
+			void OnDetach(Element*) override { owner->detached.push_back(value); delete this; }
+		};
+		EventListener* InstanceEventListener(const String& value, Element*) override { return new Listener(this, value); }
+	} instancer;
+	Factory::RegisterEventListenerInstancer(&instancer);
+
+	// Exercise both installation orders: replacing or removing one phase must
+	// leave the other listener attached and dispatching exactly once.
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		const bool capture_first = pass != 0;
+		instancer.calls.clear();
+		instancer.detached.clear();
+		if (capture_first) parent->SetAttribute("onclickcapture", "capture-old");
+		parent->SetAttribute("onclick", "bubble-old");
+		if (!capture_first) parent->SetAttribute("onclickcapture", "capture-old");
+		child->DispatchEvent("click", {});
+		CHECK((instancer.calls == Vector<String>{"capture-old", "bubble-old"}));
+
+		instancer.calls.clear();
+		parent->SetAttribute("onclickcapture", "capture-new");
+		child->DispatchEvent("click", {});
+		CHECK((instancer.calls == Vector<String>{"capture-new", "bubble-old"}));
+		CHECK((instancer.detached == Vector<String>{"capture-old"}));
+
+		instancer.calls.clear();
+		parent->SetAttribute("onclick", "bubble-new");
+		child->DispatchEvent("click", {});
+		CHECK((instancer.calls == Vector<String>{"capture-new", "bubble-new"}));
+
+		instancer.calls.clear();
+		parent->RemoveAttribute("onclick");
+		child->DispatchEvent("click", {});
+		CHECK((instancer.calls == Vector<String>{"capture-new"}));
+		parent->RemoveAttribute("onclickcapture");
+		instancer.calls.clear();
+		child->DispatchEvent("click", {});
+		CHECK(instancer.calls.empty());
+		CHECK((instancer.detached == Vector<String>{"capture-old", "bubble-old", "bubble-new", "capture-new"}));
+	}
+	document->Close();
+	Factory::RegisterEventListenerInstancer(nullptr);
+	TestsShell::ShutdownShell();
+}

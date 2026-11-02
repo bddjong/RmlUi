@@ -26,6 +26,10 @@ public:
 	/// @note The attribute is considered the source of truth for the value.
 	/// @note The value will be sanitized and synchronized back to the element's value attribute.
 	void OnValueAttributeChanged(String value);
+	/// Release the keyboard before this widget is replaced on a focused input.
+	void PrepareForTypeReplacement();
+	/// Activate a newly constructed widget when its element already has focus.
+	void RestoreFocus();
 	/// Returns the underlying text from the element's value attribute.
 	String GetAttributeValue() const;
 
@@ -133,6 +137,7 @@ protected:
 	void DispatchChangeEvent(bool linebreak = false);
 
 private:
+	void ActivateFocus();
 	struct Line {
 		// Offset into the text field's value.
 		int value_offset;

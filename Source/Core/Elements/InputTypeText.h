@@ -33,6 +33,10 @@ public:
 	/// @param[in] changed_attributes The list of changed attributes.
 	/// @return True if no layout is required, false if the layout needs to be dirtied.
 	bool OnAttributeChange(const ElementAttributes& changed_attributes) override;
+	/// Release the old widget's keyboard before replacing its input type.
+	void PrepareForTypeReplacement();
+	/// Restore widget focus after replacing another input type on a focused element.
+	void RestoreFocus();
 	/// Called when properties on the control are changed.
 	/// @param[in] changed_properties The properties changed on the element.
 	void OnPropertyChange(const PropertyIdSet& changed_properties) override;

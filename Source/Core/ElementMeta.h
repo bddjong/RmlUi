@@ -17,7 +17,8 @@ namespace Rml {
 // Meta objects for element collected in a single struct to reduce memory allocations
 struct ElementMeta {
 	explicit ElementMeta(Element* el) : event_dispatcher(el), style(el), background_border(), effects(el), scroll(el), computed_values(el) {}
-	SmallUnorderedMap<EventId, EventListener*> attribute_event_listeners;
+	// EventId occupies 16 bits; the low bit distinguishes the capture phase.
+	SmallUnorderedMap<uint32_t, EventListener*> attribute_event_listeners;
 	EventDispatcher event_dispatcher;
 	ElementStyle style;
 	ElementBackgroundBorder background_border;

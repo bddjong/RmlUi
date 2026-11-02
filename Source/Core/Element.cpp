@@ -1766,12 +1766,14 @@ void Element::OnAttributeChange(const ElementAttributes& changed_attributes)
 			auto& event_dispatcher = meta->event_dispatcher;
 			const size_t event_name_length = attribute.size() - on_length - (in_capture_phase ? capture_length : 0);
 			const auto event_id = EventSpecificationInterface::GetIdOrInsert(attribute.substr(on_length, event_name_length));
-			const auto remove_event_listener_if_exists = [&attribute_event_listeners, &event_dispatcher, event_id, in_capture_phase]() {
-				const auto listener_it = attribute_event_listeners.find(event_id);
+			const uint32_t listener_key = (static_cast<uint32_t>(event_id) << 1) | static_cast<uint32_t>(in_capture_phase);
+			const auto remove_event_listener_if_exists = [&attribute_event_listeners, &event_dispatcher, event_id, listener_key, in_capture_phase]() {
+				const auto listener_it = attribute_event_listeners.find(listener_key);
 				if (listener_it != attribute_event_listeners.cend())
 				{
-					event_dispatcher.DetachEvent(event_id, listener_it->second, in_capture_phase);
+					EventListener* listener = listener_it->second;
 					attribute_event_listeners.erase(listener_it);
+					event_dispatcher.DetachEvent(event_id, listener, in_capture_phase);
 				}
 			};
 
@@ -1780,7 +1782,7 @@ void Element::OnAttributeChange(const ElementAttributes& changed_attributes)
 				remove_event_listener_if_exists();
 
 				const auto value_as_string = value.Get<String>();
-				auto insertion_result = attribute_event_listeners.emplace(event_id, Factory::InstanceEventListener(value_as_string, this));
+				auto insertion_result = attribute_event_listeners.emplace(listener_key, Factory::InstanceEventListener(value_as_string, this));
 				if (auto* listener = insertion_result.first->second)
 					event_dispatcher.AttachEvent(event_id, listener, in_capture_phase);
 			}

@@ -87,7 +87,10 @@ void ElementFormControlInput::OnLayout()
 
 void ElementFormControlInput::OnAttributeChange(const ElementAttributes& changed_attributes)
 {
+	auto self = GetObserverPtr();
 	ElementFormControl::OnAttributeChange(changed_attributes);
+	if (!self)
+		return;
 
 	String new_type_name;
 
@@ -102,7 +105,16 @@ void ElementFormControlInput::OnAttributeChange(const ElementAttributes& changed
 	{
 		// Reset the existing type before constructing a new one. This ensures the old type removes properties and event
 		// listeners attached to this element, so it does not interfere with new ones being attached by the new type.
+		InputType* previous_type = type.get();
+		if (type && (type_name == "text" || type_name == "password"))
+			static_cast<InputTypeText*>(type.get())->PrepareForTypeReplacement();
+		if (!self || type.get() != previous_type)
+			return;
 		type.reset();
+		// A text-input handler can destroy the element or replace its type while
+		// the previous widget's input context is being destroyed.
+		if (!self || type)
+			return;
 
 		if (new_type_name == "password")
 			type = MakeUnique<InputTypeText>(this, InputTypeText::OBSCURED);
@@ -134,8 +146,16 @@ void ElementFormControlInput::OnAttributeChange(const ElementAttributes& changed
 	RMLUI_ASSERT(type);
 
 	const ElementAttributes attributes = type_replaced ? GetAttributes() : changed_attributes;
-	if (!type->OnAttributeChange(attributes))
+	InputType* current_type = type.get();
+	const bool layout_unchanged = type->OnAttributeChange(attributes);
+	if (!self || type.get() != current_type)
+		return;
+	if (!layout_unchanged)
 		DirtyLayout();
+	// Type replacement does not dispatch a new focus event. The replacement
+	// text widget must adopt the existing element focus after restoring values.
+	if (type_replaced && (type_name == "text" || type_name == "password"))
+		static_cast<InputTypeText*>(type.get())->RestoreFocus();
 }
 
 void ElementFormControlInput::OnPropertyChange(const PropertyIdSet& changed_properties)

@@ -18,6 +18,16 @@ InputTypeText::InputTypeText(ElementFormControlInput* element, Visibility visibi
 
 InputTypeText::~InputTypeText() {}
 
+void InputTypeText::PrepareForTypeReplacement()
+{
+	widget->PrepareForTypeReplacement();
+}
+
+void InputTypeText::RestoreFocus()
+{
+	widget->RestoreFocus();
+}
+
 void InputTypeText::OnUpdate()
 {
 	widget->OnUpdate();

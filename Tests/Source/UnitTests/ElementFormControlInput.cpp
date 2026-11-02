@@ -3,6 +3,7 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/TextInputContext.h>
 #include <RmlUi/Core/TextInputHandler.h>
 #include <doctest.h>
 
@@ -86,6 +87,82 @@ TEST_CASE("submit label is removed on input type replacement")
 	submit->SetAttribute("type", "submit");
 	CHECK(submit->GetNumChildren(true) == 1);
 	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("focused input type replacement restores text input context")
+{
+	REQUIRE(TestsShell::GetContext());
+	struct Handler : TextInputHandler {
+		TextInputContext* active = nullptr;
+		int activated = 0, deactivated = 0, destroyed = 0;
+		Element* replace_on_destroy = nullptr;
+		void OnActivate(TextInputContext* context) override { active = context; ++activated; }
+		void OnDeactivate(TextInputContext* context) override { if (active == context) active = nullptr; ++deactivated; }
+		void OnDestroy(TextInputContext* context) override {
+			if (active == context) active = nullptr;
+			++destroyed;
+			if (Element* target = replace_on_destroy) {
+				replace_on_destroy = nullptr;
+				target->SetAttribute("type", "checkbox");
+			}
+		}
+	} handler;
+	Context* context = CreateContext("input-type-focus", {640, 480}, nullptr, &handler);
+	REQUIRE(context);
+	struct ContextGuard {
+		Handler* handler;
+		bool active = true;
+		~ContextGuard() { handler->replace_on_destroy = nullptr; if (active) RemoveContext("input-type-focus"); }
+	} context_guard{&handler};
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(<rml><head><style>body { font-family: LatoLatin; }</style></head><body><input id="input" type="text" value="abc"/></body></rml>)");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	Element* input = document->GetElementById("input");
+	REQUIRE(input);
+	REQUIRE(input->Focus());
+	REQUIRE(handler.active);
+	CHECK(handler.activated == 1);
+
+	input->SetAttribute("type", "password");
+	CHECK(context->GetFocusElement() == input);
+	CHECK(handler.destroyed == 1);
+	CHECK(handler.activated == 2);
+	REQUIRE(handler.active);
+	handler.active->SetText("X", 0, 0);
+	CHECK(input->GetAttribute<String>("value", "") == "Xabc");
+
+	input->SetAttribute("type", "checkbox");
+	CHECK(context->GetFocusElement() == input);
+	CHECK(handler.active == nullptr);
+	CHECK(handler.destroyed == 2);
+	input->SetAttribute("type", "text");
+	CHECK(handler.activated == 3);
+	REQUIRE(handler.active);
+	input->SetAttribute("disabled", "");
+	CHECK(context->GetFocusElement() != input);
+	CHECK(handler.active == nullptr);
+	CHECK(handler.deactivated == 1);
+	input->SetAttribute("type", "password");
+	CHECK(handler.active == nullptr);
+	CHECK(handler.activated == 3);
+
+	// The input handler may replace the type while its old context is being
+	// destroyed. The outer replacement must not overwrite that newer choice.
+	input->RemoveAttribute("disabled");
+	context->Update();
+	REQUIRE(input->Focus());
+	REQUIRE(handler.active);
+	handler.replace_on_destroy = input;
+	input->SetAttribute("type", "text");
+	CHECK(input->GetAttribute<String>("type", "") == "checkbox");
+	CHECK(handler.active == nullptr);
+
+	document->Close();
+	const bool removed = RemoveContext("input-type-focus");
+	context_guard.active = !removed;
+	CHECK(removed);
 	TestsShell::ShutdownShell();
 }
 
