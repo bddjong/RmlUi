@@ -35,7 +35,8 @@ static int ConvertFixed16_16ToInt(int32_t fx)
 static const char* GetFreeTypeErrorString(FT_Error error_code)
 {
 #undef FTERRORS_H_
-#include "freetype/fterrors.h"
+#undef __FTERRORS_H__
+#include FT_ERRORS_H
 	return "";
 }
 #endif
