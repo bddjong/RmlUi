@@ -89,7 +89,9 @@ static void StoreAttributeDictionaryInCache(AttributeDictionaryCacheRef cache,
     AttributeDictionaryRef dictionary, SBAttributeRegistryRef registry)
 {
     AttributeDictionaryClear(dictionary, registry);
-    ListAdd(&cache->_attributeDicts, &dictionary);
+    if (!ListAdd(&cache->_attributeDicts, &dictionary)) {
+        AttributeDictionaryDestroy(dictionary, registry);
+    }
 }
 
 /* =========================================================================
@@ -568,7 +570,9 @@ static void InsertFirstAttributeEntry(AttributeManagerRef manager)
     entry.index = 0;
     entry.attributes = AcquireAttributeDictionaryFromCache(&manager->_cache);
 
-    ListAdd(&manager->_entries, &entry);
+    if (entry.attributes && !ListAdd(&manager->_entries, &entry)) {
+        AttributeDictionaryDestroy(entry.attributes, manager->_registry);
+    }
 }
 
 /**
@@ -629,35 +633,44 @@ SB_INTERNAL void AttributeManagerFinalize(AttributeManagerRef manager)
     }
 }
 
-SB_INTERNAL void AttributeManagerCopyAttributes(AttributeManagerRef manager,
+SB_INTERNAL SBBoolean AttributeManagerCopyAttributes(AttributeManagerRef manager,
     const AttributeManager *source)
 {
     SBAttributeRegistryRef registry = manager->_registry;
+    LIST(AttributeEntry) replacement;
+    SBUInteger i;
+    if (!registry) return SBTrue;
 
-    if (registry) {
-        SBUInteger entryCount = source->_entries.count;
-        SBUInteger entryIndex;
-
-        /* Clear existing entries and cache their dictionaries */
-        RemoveAttributeEntryRange(manager, 0, manager->_entries.count);
-        /* Reserve space for source entries */
-        ListReserveRange(&manager->_entries, 0, entryCount);
-
-        /* Deep copy each entry and its attributes */
-        for (entryIndex = 0; entryIndex < entryCount; entryIndex++) {
-            const AttributeEntry *sourceEntry = ListGetRef(&source->_entries, entryIndex);
-            AttributeEntry *newEntry = ListGetRef(&manager->_entries, entryIndex);
-            AttributeDictionaryRef cloneAttributes;
-
-            cloneAttributes = AcquireAttributeDictionaryFromCache(&manager->_cache);
-            AttributeDictionarySet(cloneAttributes, sourceEntry->attributes, registry);
-
-            newEntry->index = sourceEntry->index;
-            newEntry->attributes = cloneAttributes;
+    ListInitialize(&replacement, sizeof(AttributeEntry));
+    for (i = 0; i < source->_entries.count; i++) {
+        const AttributeEntry *src = ListGetRef(&source->_entries, i);
+        AttributeEntry entry;
+        entry.index = src->index;
+        entry.attributes = AttributeDictionaryCreate(registry->valueSize);
+        if (!entry.attributes) goto failure;
+        if (!AttributeDictionarySet(entry.attributes, src->attributes, registry) ||
+            !ListAdd(&replacement, &entry)) {
+            AttributeDictionaryDestroy(entry.attributes, registry);
+            goto failure;
         }
-
-        manager->_stringLength = source->_stringLength;
     }
+    for (i = 0; i < manager->_entries.count; i++) {
+        AttributeEntry *entry = ListGetRef(&manager->_entries, i);
+        AttributeDictionaryDestroy(entry->attributes, registry);
+    }
+    ListFinalize(&manager->_entries);
+    /* LIST expands to anonymous structs, so copy through the common List type. */
+    *(ListRef)&manager->_entries = *(ListRef)&replacement;
+    manager->_stringLength = source->_stringLength;
+    return SBTrue;
+
+failure:
+    for (i = 0; i < replacement.count; i++) {
+        AttributeEntry *entry = ListGetRef(&replacement, i);
+        AttributeDictionaryDestroy(entry->attributes, registry);
+    }
+    ListFinalize(&replacement);
+    return SBFalse;
 }
 
 SB_INTERNAL AttributeEntry *AttributeManagerFindEntry(AttributeManagerRef manager,

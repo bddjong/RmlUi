@@ -11,6 +11,8 @@
 #include <RmlUi/Core/StyleSheetSpecification.h>
 #include <RmlUi/Core/StyleSheetTypes.h>
 #include <doctest.h>
+#include <limits>
+#include <cmath>
 
 using namespace Rml;
 
@@ -294,4 +296,146 @@ TEST_CASE("computed border defaults and radius bounds")
 	CHECK(values.border_top_left_radius() == 32767.f);
 	values.border_top_width(65535);
 	CHECK(values.border_top_width() == 65535.f);
+	const float nan = std::numeric_limits<float>::quiet_NaN();
+	const float infinity = std::numeric_limits<float>::infinity();
+	values.border_top_left_radius(nan);
+	CHECK(values.border_top_left_radius() == 0.f);
+	values.border_top_left_radius(infinity);
+	CHECK(values.border_top_left_radius() == 32767.f);
+	values.border_top_left_radius(-infinity);
+	CHECK(values.border_top_left_radius() == 0.f);
+}
+
+TEST_CASE("parsed border lengths saturate computed values")
+{
+	TestsSystemInterface system_interface;
+	TestsRenderInterface render_interface;
+	SetRenderInterface(&render_interface);
+	SetSystemInterface(&system_interface);
+	Rml::Initialise();
+	Context* context = Rml::CreateContext("border-bounds", Vector2i(1024, 768));
+	ElementDocument* document = context->CreateDocument();
+
+	struct Case { const char* input; float width; float radius; };
+	const Case cases[] = {
+		{"-32769px", 0.f, 0.f}, {"-0.5px", 0.f, 0.f}, {"0px", 0.f, 0.f},
+		{"-0px", 0.f, 0.f}, {"0.1px", 1.f, 0.f},
+		{"1.499px", 1.f, 1.f}, {"1.5px", 2.f, 1.f}, {"1.501px", 2.f, 1.f}, {"32768px", 32768.f, 32767.f},
+		{"65534.49px", 65534.f, 32767.f}, {"65534.5px", 65535.f, 32767.f}, {"65534.51px", 65535.f, 32767.f},
+		{"65535px", 65535.f, 32767.f}, {"65535.01px", 65535.f, 32767.f}, {"65536px", 65535.f, 32767.f},
+		{"999999999999999999999999999999999999999999999px", 65535.f, 32767.f},
+	};
+	for (const Case& test : cases)
+	{
+		CAPTURE(test.input);
+		REQUIRE(document->SetProperty("border-width", test.input));
+		REQUIRE(document->SetProperty("border-radius", test.input));
+		context->Update();
+		const auto& values = document->GetComputedValues();
+		CHECK(values.border_top_width() == test.width);
+		CHECK(values.border_right_width() == test.width);
+		CHECK(values.border_bottom_width() == test.width);
+		CHECK(values.border_left_width() == test.width);
+		CHECK(values.border_top_left_radius() == test.radius);
+		CHECK(values.border_top_right_radius() == test.radius);
+		CHECK(values.border_bottom_right_radius() == test.radius);
+		CHECK(values.border_bottom_left_radius() == test.radius);
+	}
+	// RmlUi accepts negative lengths, but each computed radius must remain nonnegative.
+	REQUIRE(document->SetProperty("border-radius", "-100px 10px 10px 10px"));
+	context->Update();
+	const auto& mixed = document->GetComputedValues();
+	CHECK(mixed.border_top_left_radius() == 0.f);
+	CHECK(mixed.border_top_right_radius() == 10.f);
+	CHECK(mixed.border_bottom_right_radius() == 10.f);
+	CHECK(mixed.border_bottom_left_radius() == 10.f);
+
+	const float nan = std::numeric_limits<float>::quiet_NaN();
+	const float infinity = std::numeric_limits<float>::infinity();
+	REQUIRE(document->SetProperty(PropertyId::BorderTopLeftRadius, Property(nan, Unit::PX)));
+	context->Update();
+	CHECK(mixed.border_top_left_radius() == 0.f);
+	CHECK(mixed.border_top_right_radius() == 10.f);
+	CHECK(mixed.border_bottom_right_radius() == 10.f);
+	CHECK(mixed.border_bottom_left_radius() == 10.f);
+	for (const auto& test : {std::pair<float, float>{nan, 0.f}, {infinity, 65535.f}, {-infinity, 0.f}})
+	{
+		REQUIRE(document->SetProperty(PropertyId::BorderTopWidth, Property(test.first, Unit::PX)));
+		context->Update();
+		CHECK(document->GetComputedValues().border_top_width() == test.second);
+	}
+	REQUIRE(document->SetProperty("margin-left", "-12.5px"));
+	REQUIRE(document->SetProperty("left", "-7.25px"));
+	context->Update();
+	CHECK(document->GetComputedValues().margin_left().type == Style::LengthPercentageAuto::Length);
+	CHECK(document->GetComputedValues().margin_left().value == -12.5f);
+	CHECK(document->GetComputedValues().left().type == Style::LengthPercentageAuto::Length);
+	CHECK(document->GetComputedValues().left().value == -7.25f);
+	context->SetDensityIndependentPixelRatio(2.f);
+	REQUIRE(document->SetProperty("border-width", "1.25dp"));
+	REQUIRE(document->SetProperty("border-radius", "1.25dp"));
+	context->Update();
+	CHECK(document->GetComputedValues().border_top_width() == 3.f);
+	CHECK(document->GetComputedValues().border_top_left_radius() == 2.f);
+	document->Close();
+	Rml::Shutdown();
+}
+
+TEST_CASE("border radius geometry preserves corners and normalizes proportionally")
+{
+	class GeometryCapture : public TestsRenderInterface {
+	public:
+		Vector<Vector2f> positions;
+		CompiledGeometryHandle CompileGeometry(Span<const Vertex> vertices, Span<const int> indices) override
+		{
+			for (const Vertex& vertex : vertices)
+				positions.push_back(vertex.position);
+			return TestsRenderInterface::CompileGeometry(vertices, indices);
+		}
+	} render_interface;
+	TestsSystemInterface system_interface;
+	SetRenderInterface(&render_interface);
+	SetSystemInterface(&system_interface);
+	Rml::Initialise();
+	Context* context = Rml::CreateContext("border-geometry", Vector2i(200, 200));
+	ElementDocument* document = context->CreateDocument();
+	REQUIRE(document->SetProperty("width", "100px"));
+	REQUIRE(document->SetProperty("height", "100px"));
+	REQUIRE(document->SetProperty("background-color", "white"));
+	document->Show();
+
+	auto has_point = [&](float x, float y) {
+		for (const Vector2f& point : render_interface.positions)
+			if (std::abs(point.x - x) < 0.01f && std::abs(point.y - y) < 0.01f)
+				return true;
+		return false;
+	};
+	auto render = [&](const char* radius) {
+		render_interface.positions.clear();
+		REQUIRE(document->SetProperty("border-radius", radius));
+		context->Update();
+		context->Render();
+		REQUIRE(!render_interface.positions.empty());
+	};
+
+	render("-100px 10px 10px 10px");
+	CHECK(has_point(0, 0));
+	for (const auto& point : {Vector2f(90, 0), Vector2f(100, 10), Vector2f(100, 90),
+		Vector2f(90, 100), Vector2f(10, 100), Vector2f(0, 90)})
+		CHECK(has_point(point.x, point.y));
+	CHECK_FALSE(has_point(100, 0));
+	CHECK_FALSE(has_point(100, 100));
+	CHECK_FALSE(has_point(0, 100));
+
+	// Right side is limiting: 80 + 120 scales all radii by 1/2.
+	render("40px 80px 120px 20px");
+	for (const auto& point : {Vector2f(0, 20), Vector2f(20, 0), Vector2f(60, 0), Vector2f(100, 40),
+		Vector2f(40, 100), Vector2f(10, 100), Vector2f(0, 90)})
+		CHECK(has_point(point.x, point.y));
+	CHECK_FALSE(has_point(0, 0));
+	CHECK_FALSE(has_point(100, 0));
+	CHECK_FALSE(has_point(100, 100));
+	CHECK_FALSE(has_point(0, 100));
+	document->Close();
+	Rml::Shutdown();
 }

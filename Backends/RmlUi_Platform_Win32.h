@@ -116,4 +116,5 @@ private:
 	// Composition range (character position) relative to the text input value.
 	int composition_range_start;
 	int composition_range_end;
+	bool composition_range_valid;
 };

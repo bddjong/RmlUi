@@ -73,23 +73,31 @@ int ElementStyleProxy__newindex(lua_State* L)
 	return LuaType<ElementStyleProxy>::newindex(L);
 }
 
+static int ElementStyleProxyNext(lua_State* L)
+{
+	lua_settop(L, 2);
+	return lua_next(L, 1) ? 2 : 0;
+}
+
 int ElementStyleProxy__pairs(lua_State* L)
 {
 	ElementStyleProxy* obj = LuaType<ElementStyleProxy>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	RMLUI_CHECK_OBJ(obj->owner.get());
-	lua_getglobal(L, "next");
+	lua_pushcfunction(L, ElementStyleProxyNext);
 	lua_newtable(L);
-	for (auto view = obj->owner->IterateLocalProperties(nullptr); !view.AtEnd(); ++view)
+	if (obj->owner)
 	{
-		const auto& [key, property] = *view;
-		String value;
-		if (property.definition)
-			property.definition->GetValue(value, property);
-		else
-			value = property.ToString();
-		lua_pushlstring(L, value.c_str(), value.size());
-		lua_setfield(L, -2, key.c_str());
+		for (auto view = obj->owner->IterateLocalProperties(nullptr); !view.AtEnd(); ++view)
+		{
+			const auto& [key, property] = *view;
+			String value;
+			if (property.definition)
+				property.definition->GetValue(value, property);
+			else
+				value = property.ToString();
+			lua_pushlstring(L, value.c_str(), value.size());
+			lua_setfield(L, -2, key.c_str());
+		}
 	}
 	lua_pushnil(L);
 	return 3;

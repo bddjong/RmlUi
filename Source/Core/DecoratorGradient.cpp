@@ -21,11 +21,9 @@ static Vector2f IntersectionPointToLineNormal(const Vector2f point, const Vector
 /// Convert all color stop positions to normalized numbers.
 /// @param[in] element The element to resolve lengths against.
 /// @param[in] gradient_line_length The length of the gradient line, along which color stops are placed.
-/// @param[in] soft_spacing The desired minimum distance between stops to avoid aliasing, in normalized number units.
 /// @param[in] unresolved_stops
 /// @return A list of resolved color stops, all in number units.
-static ColorStopList ResolveColorStops(Element* element, const float gradient_line_length, const float soft_spacing,
-	const ColorStopList& unresolved_stops)
+static ColorStopList ResolveColorStops(Element* element, const float gradient_line_length, const ColorStopList& unresolved_stops)
 {
 	ColorStopList stops = unresolved_stops;
 	const int num_stops = (int)stops.size();
@@ -36,7 +34,7 @@ static ColorStopList ResolveColorStops(Element* element, const float gradient_li
 		if (Any(stop.position.unit & Unit::LENGTH))
 		{
 			const float resolved_position = element->ResolveLength(stop.position);
-			stop.position = NumericValue(resolved_position / gradient_line_length, Unit::NUMBER);
+			stop.position = NumericValue(resolved_position / (gradient_line_length > 0.f ? gradient_line_length : 1.f), Unit::NUMBER);
 		}
 		else if (stop.position.unit == Unit::PERCENT)
 		{
@@ -56,7 +54,7 @@ static ColorStopList ResolveColorStops(Element* element, const float gradient_li
 	resolve_edge_stop(stops[0], 0.f);
 	resolve_edge_stop(stops[num_stops - 1], 1.f);
 
-	// Ensures that color stop positions are strictly increasing, and have at least 1px spacing to avoid aliasing.
+	// Clamp decreasing positions to the preceding stop, preserving hard transitions.
 	auto nudge_stop = [prev_position = stops[0].position.number](ColorStop& stop, bool update_prev = true) mutable {
 		stop.position.number = Math::Max(stop.position.number, prev_position);
 		if (update_prev)
@@ -64,7 +62,7 @@ static ColorStopList ResolveColorStops(Element* element, const float gradient_li
 	};
 	int auto_begin_i = -1;
 
-	// Evenly space stops with sequential auto indices, and nudge stop positions to ensure strictly increasing positions.
+	// Evenly space sequential auto stops after clamping their ending position.
 	for (int i = 1; i < num_stops; i++)
 	{
 		ColorStop& stop = stops[i];
@@ -76,7 +74,7 @@ static ColorStopList ResolveColorStops(Element* element, const float gradient_li
 		}
 		else if (auto_begin_i < 0)
 		{
-			// The stop has a definite position and there are no previous autos to handle, just ensure it is properly spaced.
+			// Clamp the definite position when there are no preceding auto stops.
 			nudge_stop(stop);
 		}
 		else
@@ -96,23 +94,6 @@ static ColorStopList ResolveColorStops(Element* element, const float gradient_li
 
 			nudge_stop(stop);
 			auto_begin_i = -1;
-		}
-	}
-
-	// Ensures that stops are placed some minimum distance from each other to avoid aliasing, if possible.
-	for (int i = 1; i < num_stops - 1; i++)
-	{
-		const float p0 = stops[i - 1].position.number;
-		const float p1 = stops[i].position.number;
-		const float p2 = stops[i + 1].position.number;
-		float& new_position = stops[i].position.number;
-
-		if (p1 - p0 < soft_spacing)
-		{
-			if (p2 - p0 < 2.f * soft_spacing)
-				new_position = 0.5f * (p2 + p0);
-			else
-				new_position = p0 + soft_spacing;
 		}
 	}
 
@@ -244,10 +225,7 @@ DecoratorDataHandle DecoratorLinearGradient::GenerateElementData(Element* elemen
 	const RenderBox render_box = element->GetRenderBox(paint_area);
 	LinearGradientShape gradient_shape = CalculateShape(render_box.GetFillSize());
 
-	// One-pixel minimum color stop spacing to avoid aliasing.
-	const float soft_spacing = 1.f / gradient_shape.length;
-
-	ColorStopList resolved_stops = ResolveColorStops(element, gradient_shape.length, soft_spacing, color_stops);
+	ColorStopList resolved_stops = ResolveColorStops(element, gradient_shape.length, color_stops);
 
 	CompiledShader shader = render_manager->CompileShader("linear-gradient",
 		Dictionary{
@@ -414,10 +392,7 @@ DecoratorDataHandle DecoratorRadialGradient::GenerateElementData(Element* elemen
 
 	RadialGradientShape gradient_shape = CalculateRadialGradientShape(element, dimensions);
 
-	// One-pixel minimum color stop spacing to avoid aliasing.
-	const float soft_spacing = 1.f / Math::Min(gradient_shape.radius.x, gradient_shape.radius.y);
-
-	ColorStopList resolved_stops = ResolveColorStops(element, gradient_shape.radius.x, soft_spacing, color_stops);
+	ColorStopList resolved_stops = ResolveColorStops(element, gradient_shape.radius.x, color_stops);
 
 	CompiledShader shader = render_manager->CompileShader("radial-gradient",
 		Dictionary{
@@ -614,7 +589,7 @@ DecoratorDataHandle DecoratorConicGradient::GenerateElementData(Element* element
 	const Vector2f center =
 		Vector2f{element->ResolveNumericValue(position.x, dimensions.x), element->ResolveNumericValue(position.y, dimensions.y)}.Round();
 
-	ColorStopList resolved_stops = ResolveColorStops(element, 1.f, 0.f, color_stops);
+	ColorStopList resolved_stops = ResolveColorStops(element, 1.f, color_stops);
 
 	CompiledShader shader = render_manager->CompileShader("conic-gradient",
 		Dictionary{

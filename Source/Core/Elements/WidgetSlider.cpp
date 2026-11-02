@@ -361,7 +361,7 @@ Element* WidgetSlider::GetParent() const
 
 void WidgetSlider::ProcessEvent(Event& event)
 {
-	if (parent->IsDisabled())
+	if (parent->IsDisabled() && event.GetId() != EventId::Blur)
 		return;
 
 	switch (event.GetId())

@@ -3,6 +3,12 @@
 namespace Rml {
 namespace Lua {
 
+// Keep the constructor and channel setters' existing Lua integer conversion.
+static byte CheckComponent(lua_State* L, int index)
+{
+	return (byte)luaL_checkinteger(L, index);
+}
+
 template <>
 void ExtraInit<Colourb>(lua_State* L, int metatable_index)
 {
@@ -22,10 +28,10 @@ void ExtraInit<Colourb>(lua_State* L, int metatable_index)
 }
 int Colourbnew(lua_State* L)
 {
-	byte red = (byte)luaL_checkinteger(L, 1);
-	byte green = (byte)luaL_checkinteger(L, 2);
-	byte blue = (byte)luaL_checkinteger(L, 3);
-	byte alpha = (byte)luaL_checkinteger(L, 4);
+	byte red = CheckComponent(L, 1);
+	byte green = CheckComponent(L, 2);
+	byte blue = CheckComponent(L, 3);
+	byte alpha = CheckComponent(L, 4);
 
 	Colourb* col = new Colourb(red, green, blue, alpha);
 
@@ -106,11 +112,12 @@ int ColourbGetAttrrgba(lua_State* L)
 {
 	Colourb* obj = LuaType<Colourb>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	lua_pushinteger(L, obj->red);
-	lua_pushinteger(L, obj->green);
-	lua_pushinteger(L, obj->blue);
-	lua_pushinteger(L, obj->alpha);
-	return 4;
+	lua_createtable(L, 4, 0);
+	lua_pushinteger(L, obj->red); lua_rawseti(L, -2, 1);
+	lua_pushinteger(L, obj->green); lua_rawseti(L, -2, 2);
+	lua_pushinteger(L, obj->blue); lua_rawseti(L, -2, 3);
+	lua_pushinteger(L, obj->alpha); lua_rawseti(L, -2, 4);
+	return 1;
 }
 
 // setters
@@ -118,7 +125,7 @@ int ColourbSetAttrred(lua_State* L)
 {
 	Colourb* obj = LuaType<Colourb>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	byte red = (byte)luaL_checkinteger(L, 2);
+	byte red = CheckComponent(L, 2);
 	obj->red = red;
 	return 0;
 }
@@ -127,7 +134,7 @@ int ColourbSetAttrgreen(lua_State* L)
 {
 	Colourb* obj = LuaType<Colourb>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	byte green = (byte)luaL_checkinteger(L, 2);
+	byte green = CheckComponent(L, 2);
 	obj->green = green;
 	return 0;
 }
@@ -136,7 +143,7 @@ int ColourbSetAttrblue(lua_State* L)
 {
 	Colourb* obj = LuaType<Colourb>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	byte blue = (byte)luaL_checkinteger(L, 2);
+	byte blue = CheckComponent(L, 2);
 	obj->blue = blue;
 	return 0;
 }
@@ -145,32 +152,27 @@ int ColourbSetAttralpha(lua_State* L)
 {
 	Colourb* obj = LuaType<Colourb>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	byte alpha = (byte)luaL_checkinteger(L, 2);
+	byte alpha = CheckComponent(L, 2);
 	obj->alpha = alpha;
 	return 0;
 }
 
 int ColourbSetAttrrgba(lua_State* L)
 {
-	Colourb* obj = nullptr;
-	int top = lua_gettop(L);
-	// each of the items are optional.
-	if (top > 0)
+	Colourb* obj = LuaType<Colourb>::check(L, 1);
+	RMLUI_CHECK_OBJ(obj);
+	luaL_checktype(L, 2, LUA_TTABLE);
+	byte components[4];
+	for (int i = 0; i < 4; ++i)
 	{
-		obj = LuaType<Colourb>::check(L, 1);
-		RMLUI_CHECK_OBJ(obj);
-		if (top > 1)
-		{
-			if (top > 2)
-			{
-				if (top > 3)
-					obj->alpha = (byte)luaL_checkinteger(L, 4);
-				obj->blue = (byte)luaL_checkinteger(L, 3);
-			}
-			obj->green = (byte)luaL_checkinteger(L, 2);
-		}
-		obj->red = (byte)luaL_checkinteger(L, 1);
+		lua_rawgeti(L, 2, i + 1);
+		components[i] = CheckComponent(L, -1);
+		lua_pop(L, 1);
 	}
+	obj->red = components[0];
+	obj->green = components[1];
+	obj->blue = components[2];
+	obj->alpha = components[3];
 	return 0;
 }
 

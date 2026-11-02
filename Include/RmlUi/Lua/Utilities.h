@@ -5,6 +5,7 @@
 #include "Header.h"
 #include "IncludeLua.h"
 #include "LuaType.h"
+#include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/Types.h>
 
 namespace Rml {
@@ -52,6 +53,24 @@ namespace Lua {
 	// by the conversion
 	int RMLUILUA_API GetIndex(lua_State* L, int index);
 
+	// Types with Rml RTTI use its class identifiers. For other Element subclasses,
+	// C++ RTTI provides the checked cast when available. Without either form of
+	// RTTI the cast safely returns nil; declare Rml RTTI to enable it.
+	template <typename T>
+	T* CastElement(Element* element)
+	{
+		if constexpr (std::is_same_v<typename T::RttiClassType, T>)
+			return rmlui_dynamic_cast<T*>(element);
+		else
+		{
+#ifdef RMLUI_HAS_RTTI
+			return dynamic_cast<T*>(element);
+#else
+			return nullptr;
+#endif
+		}
+	}
+
 	// Helper function, so that the types don't have to define individual functions themselves
 	//  to fill the Elements.As table
 	template <typename ToType>
@@ -59,7 +78,7 @@ namespace Lua {
 	{
 		Element* ele = LuaType<Element>::check(L, 1);
 		RMLUI_CHECK_OBJ(ele);
-		LuaType<ToType>::push(L, (ToType*)ele, false);
+		LuaType<ToType>::push(L, CastElement<ToType>(ele), false);
 		return 1;
 	}
 

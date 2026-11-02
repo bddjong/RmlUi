@@ -234,11 +234,15 @@ Style::LengthPercentage ComputeMaxSize(const Property* property, float font_size
 
 uint16_t ComputeBorderWidth(float computed_length)
 {
-	if (computed_length <= 0.f)
+	// Treat NaN like zero, and saturate before rounding or converting to uint16_t.
+	if (!(computed_length > 0.f))
 		return 0;
 
 	if (computed_length <= 1.f)
 		return 1;
+
+	if (computed_length >= 65535.f)
+		return 65535;
 
 	return uint16_t(computed_length + 0.5f);
 }

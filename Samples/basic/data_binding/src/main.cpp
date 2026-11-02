@@ -382,7 +382,8 @@ public:
 		document = context->LoadDocument("basic/data_binding/data/data_binding.rml");
 		if (document)
 		{
-			document->GetElementById("title")->SetInnerRML(title);
+			if (auto* element = document->GetElementById("title"))
+				element->SetInnerRML(title);
 			document->Show();
 		}
 	}
@@ -466,6 +467,14 @@ int main(int /*argc*/, char** /*argv*/)
 	Shell::LoadFonts();
 
 	auto demo_window = Rml::MakeUnique<DemoWindow>("Data binding", context);
+	if (!demo_window->GetDocument())
+	{
+		demo_window.reset();
+		Rml::Shutdown();
+		Backend::Shutdown();
+		Shell::Shutdown();
+		return -1;
+	}
 	demo_window->GetDocument()->AddEventListener(Rml::EventId::Keydown, demo_window.get());
 	demo_window->GetDocument()->AddEventListener(Rml::EventId::Keyup, demo_window.get());
 

@@ -101,6 +101,8 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 void Backend::Shutdown()
 {
 	RMLUI_ASSERT(data);
+	if (data->command_buffer)
+		PresentFrame();
 
 	data->render_interface.Shutdown();
 
@@ -201,6 +203,7 @@ void Backend::RequestExit()
 bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
+	RMLUI_ASSERT(!data->command_buffer);
 
 	data->command_buffer = SDL_AcquireGPUCommandBuffer(data->device);
 	if (!data->command_buffer)
@@ -209,9 +212,9 @@ bool Backend::BeginFrame()
 		return false;
 	}
 
-	SDL_GPUTexture* swapchain_texture;
-	uint32_t width;
-	uint32_t height;
+	SDL_GPUTexture* swapchain_texture = nullptr;
+	uint32_t width = 0;
+	uint32_t height = 0;
 	if (!SDL_WaitAndAcquireGPUSwapchainTexture(data->command_buffer, data->window, &swapchain_texture, &width, &height))
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to acquire swapchain texture: %s", SDL_GetError());
@@ -220,10 +223,19 @@ bool Backend::BeginFrame()
 		return false;
 	}
 
-	if (!swapchain_texture || !width || !height)
+	if (!swapchain_texture)
 	{
-		// Not an error. Happens on minimize
+		// No texture was acquired, for example while minimized.
 		SDL_CancelGPUCommandBuffer(data->command_buffer);
+		data->command_buffer = nullptr;
+		return false;
+	}
+	if (!width || !height)
+	{
+		// An acquired texture must be submitted, even when it cannot be rendered.
+		if (!SDL_SubmitGPUCommandBuffer(data->command_buffer))
+			Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to submit command buffer: %s", SDL_GetError());
+		data->command_buffer = nullptr;
 		return false;
 	}
 
@@ -244,6 +256,7 @@ void Backend::PresentFrame()
 	RMLUI_ASSERT(data);
 	data->render_interface.EndFrame();
 
-	SDL_SubmitGPUCommandBuffer(data->command_buffer);
+	if (!SDL_SubmitGPUCommandBuffer(data->command_buffer))
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to submit command buffer: %s", SDL_GetError());
 	data->command_buffer = nullptr;
 }

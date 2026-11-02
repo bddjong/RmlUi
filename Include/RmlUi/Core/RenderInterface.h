@@ -135,6 +135,9 @@ public:
 	virtual void ReleaseFilter(CompiledFilterHandle filter);
 
 	/// Called by RmlUi when it wants to compile a new shader.
+	/// Gradient color stops may share a position; renderers should treat them as a hard transition.
+	/// A repeating gradient with zero period uses the weighted average of all premultiplied stop colors:
+	/// endpoints have half the weight of interior stops.
 	/// @param[in] name The name of the shader.
 	/// @param[in] parameters The list of name-value parameters specified for the filter.
 	/// @return An application-specified handle representing the shader.

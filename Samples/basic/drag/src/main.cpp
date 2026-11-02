@@ -46,8 +46,14 @@ int main(int /*argc*/, char** /*argv*/)
 	Shell::LoadFonts();
 
 	// Load and show the inventory document.
-	Inventory* inventory_1 = new Inventory("Inventory 1", Rml::Vector2f(50, 200), context);
-	Inventory* inventory_2 = new Inventory("Inventory 2", Rml::Vector2f(540, 240), context);
+	std::unique_ptr<Inventory> inventory_1, inventory_2;
+	if (!InitializeInventories(context, inventory_1, inventory_2))
+	{
+		Rml::Shutdown();
+		Backend::Shutdown();
+		Shell::Shutdown();
+		return -1;
+	}
 
 	// Add items into the inventory.
 	inventory_1->AddItem("Mk III L.A.S.E.R.");
@@ -69,8 +75,8 @@ int main(int /*argc*/, char** /*argv*/)
 		}
 	}
 
-	delete inventory_1;
-	delete inventory_2;
+	inventory_1.reset();
+	inventory_2.reset();
 
 	// Shutdown RmlUi.
 	Rml::Shutdown();

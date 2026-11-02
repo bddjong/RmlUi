@@ -84,10 +84,8 @@ SB_INTERNAL void AttributeManagerFinalize(AttributeManagerRef manager);
  * Copies all attributes from a source attribute manager to this manager.
  *
  * Creates deep copies of all attribute dictionaries from the source manager, preserving both the
- * entry indices and the attribute values. The process first removes and caches all existing entries
- * in the destination manager, reserves space for entries from the source, then iterates through
- * each source entry, copying its index and deep-copying its attribute dictionary (which retains all
- * attribute values through the registry).
+ * entry indices and the attribute values. Copies are staged before replacing the destination;
+ * each copied dictionary retains its attribute values through the registry.
  *
  * @param manager
  *      The attribute manager to copy attributes into.
@@ -95,13 +93,14 @@ SB_INTERNAL void AttributeManagerFinalize(AttributeManagerRef manager);
  *      The source attribute manager to copy from. Must have the same registry.
  *
  * @note
- *      If the destination manager has no registry, this function returns immediately without
- *      performing any operations.
+ *      If the destination manager has no registry, this function succeeds without making changes.
  * @note
  *      All existing entries and attributes in the destination manager are replaced, not appended
  *      to. The code unit count is also synchronized from the source.
+ * @return
+ *      SBTrue on success. On allocation failure, returns SBFalse and leaves the destination unchanged.
  */
-SB_INTERNAL void AttributeManagerCopyAttributes(AttributeManagerRef manager,
+SB_INTERNAL SBBoolean AttributeManagerCopyAttributes(AttributeManagerRef manager,
     const AttributeManager *source);
 
 /**

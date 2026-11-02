@@ -77,7 +77,7 @@ static constexpr uint32_t kAllocationSize_ConstantBuffer_Vertex_Main = 72;
 static constexpr uint32_t kAllocationSize_ConstantBuffer_Vertex_Blur = 112;
 
 /// @brief in bytes see shader_frag_gradient.frag -> SharedConstantBuffer (416 bytes, zero padding)
-static constexpr uint32_t kAllocationSize_ConstantBuffer_Pixel_Gradient = 416;
+static constexpr uint32_t kAllocationSize_ConstantBuffer_Pixel_Gradient = 432;
 
 /// @brief in bytes see shader_frag_creation.frag -> SharedConstantBuffer
 static constexpr uint32_t kAllocationSize_ConstantBuffer_Pixel_Creation = 84;
@@ -126,6 +126,7 @@ struct CompiledShader {
 	ShaderGradientFunction gradient_function;
 	Rml::Vector2f p;
 	Rml::Vector2f v;
+	float repeat_end = 0.f;
 	Rml::Vector<float> stop_positions;
 	Rml::Vector<Rml::Colourf> stop_colors;
 
@@ -4902,6 +4903,22 @@ Rml::CompiledShaderHandle RenderInterface_VK::CompileShader(const Rml::String& n
 		auto it = shader_parameters.find("color_stop_list");
 		RMLUI_ASSERT(it != shader_parameters.end() && it->second.GetType() == Rml::Variant::COLORSTOPLIST);
 		const Rml::ColorStopList& color_stop_list = it->second.GetReference<Rml::ColorStopList>();
+		shader.repeat_end = color_stop_list.back().position.number;
+		// Preserve the complete stop list when averaging a degenerate repeat, even
+		// when the shader's uniform array cannot hold every stop.
+		if (Rml::Get(shader_parameters, "repeating", false) && color_stop_list.size() > MAX_NUM_STOPS &&
+			color_stop_list.front().position.number == color_stop_list.back().position.number)
+		{
+			Rml::Colourf average = ConvertToColorf(color_stop_list.front().color) * 0.5f;
+			for (size_t i = 1; i + 1 < color_stop_list.size(); ++i)
+				average += ConvertToColorf(color_stop_list[i].color);
+			average += ConvertToColorf(color_stop_list.back().color) * 0.5f;
+			average *= 1.f / float(color_stop_list.size() - 1);
+			shader.stop_positions.assign(2, color_stop_list.front().position.number);
+			shader.stop_colors.assign(2, average);
+			return;
+		}
+		// Interpolate the first 16 stops; retain the full-list endpoint for the repeat period.
 		const int num_stops = Rml::Math::Min((int)color_stop_list.size(), MAX_NUM_STOPS);
 
 		shader.stop_positions.resize(num_stops);
@@ -5024,13 +5041,14 @@ void RenderInterface_VK::RenderShader(Rml::CompiledShaderHandle shader_handle, R
 			Rml::Vector2f ending_point;
 			Rml::Vector4f stop_colors[MAX_NUM_STOPS];
 			float stop_positions[MAX_NUM_STOPS];
+			Rml::Vector4f repeat_end;
 		};
 
 		static_assert(sizeof(CBV_Gradient) == kAllocationSize_ConstantBuffer_Pixel_Gradient, "must match the shader's uniform block");
 
 		if (p_cb)
 		{
-			// build the full 416-byte image on the CPU and upload it with one memcpy (like the DX12 renderer)
+			// build the full 432-byte image on the CPU and upload it with one memcpy (like the DX12 renderer)
 			CBV_Gradient uploading_data = {};
 
 			uploading_data.transform = m_constant_buffer_data_transform;
@@ -5039,6 +5057,7 @@ void RenderInterface_VK::RenderShader(Rml::CompiledShaderHandle shader_handle, R
 			uploading_data.starting_point = shader.p;
 			uploading_data.ending_point = shader.v;
 			uploading_data.num_stops = num_stops;
+			uploading_data.repeat_end = {shader.repeat_end, 0.f, 0.f, 0.f};
 
 			std::memcpy(&uploading_data.stop_positions, shader.stop_positions.data(), num_stops * sizeof(float));
 			std::memcpy(&uploading_data.stop_colors, shader.stop_colors.data(), num_stops * sizeof(Rml::Vector4f));

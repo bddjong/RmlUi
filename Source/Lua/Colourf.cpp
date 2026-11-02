@@ -77,11 +77,12 @@ int ColourfGetAttrrgba(lua_State* L)
 {
 	Colourf* obj = LuaType<Colourf>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	lua_pushnumber(L, obj->red);
-	lua_pushnumber(L, obj->green);
-	lua_pushnumber(L, obj->blue);
-	lua_pushnumber(L, obj->alpha);
-	return 4;
+	lua_createtable(L, 4, 0);
+	lua_pushnumber(L, obj->red); lua_rawseti(L, -2, 1);
+	lua_pushnumber(L, obj->green); lua_rawseti(L, -2, 2);
+	lua_pushnumber(L, obj->blue); lua_rawseti(L, -2, 3);
+	lua_pushnumber(L, obj->alpha); lua_rawseti(L, -2, 4);
+	return 1;
 }
 
 // setters
@@ -123,25 +124,20 @@ int ColourfSetAttralpha(lua_State* L)
 
 int ColourfSetAttrrgba(lua_State* L)
 {
-	Colourf* obj = nullptr;
-	int top = lua_gettop(L);
-	// each of the items are optional.
-	if (top > 0)
+	Colourf* obj = LuaType<Colourf>::check(L, 1);
+	RMLUI_CHECK_OBJ(obj);
+	luaL_checktype(L, 2, LUA_TTABLE);
+	float components[4];
+	for (int i = 0; i < 4; ++i)
 	{
-		obj = LuaType<Colourf>::check(L, 1);
-		RMLUI_CHECK_OBJ(obj);
-		if (top > 1)
-		{
-			if (top > 2)
-			{
-				if (top > 3)
-					obj->alpha = (float)luaL_checknumber(L, 4);
-				obj->blue = (float)luaL_checknumber(L, 3);
-			}
-			obj->green = (float)luaL_checknumber(L, 2);
-		}
-		obj->red = (float)luaL_checknumber(L, 1);
+		lua_rawgeti(L, 2, i + 1);
+		components[i] = (float)luaL_checknumber(L, -1);
+		lua_pop(L, 1);
 	}
+	obj->red = components[0];
+	obj->green = components[1];
+	obj->blue = components[2];
+	obj->alpha = components[3];
 	return 0;
 }
 

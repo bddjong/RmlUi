@@ -157,8 +157,8 @@ void Backend::RequestExit()
 bool Backend::BeginFrame()
 {
 	RMLUI_ASSERT(data);
-	data->render_interface.BeginFrame();
 	data->render_interface.Clear();
+	data->render_interface.BeginFrame();
 	return true;
 }
 

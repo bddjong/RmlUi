@@ -44,6 +44,7 @@ public:
 	void EnableScissorRegion(bool enable) override;
 	void SetScissorRegion(int x, int y, int width, int height) override;
 
+	// On GLES 3.0 and WebGL 2, success confirms submission, not GPU allocation.
 	bool LoadTexture(Rml::TextureHandle& texture_handle, Rml::Vector2i& texture_dimensions, const Rml::String& source) override;
 	bool GenerateTexture(Rml::TextureHandle& texture_handle, const Rml::byte* source, const Rml::Vector2i& source_dimensions) override;
 	void ReleaseTexture(Rml::TextureHandle texture_handle) override;

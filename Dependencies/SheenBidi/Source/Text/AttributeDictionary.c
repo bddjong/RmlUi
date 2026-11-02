@@ -121,7 +121,7 @@ SB_INTERNAL SBBoolean AttributeDictionaryIsEmpty(AttributeDictionaryRef dictiona
     return (SBAttributeListSize(&dictionary->_list) == 0);
 }
 
-SB_INTERNAL void AttributeDictionarySet(AttributeDictionaryRef dictionary,
+SB_INTERNAL SBBoolean AttributeDictionarySet(AttributeDictionaryRef dictionary,
     AttributeDictionaryRef other, SBAttributeRegistryRef registry)
 {
     SBUInteger itemCount = SBAttributeListSize(&other->_list);
@@ -131,7 +131,7 @@ SB_INTERNAL void AttributeDictionarySet(AttributeDictionaryRef dictionary,
     ListInitialize(&replacement._list._list, dictionary->_list._list.itemSize);
     if (itemCount && !SBAttributeListReserveRange(&replacement._list, 0, itemCount)) {
         AttributeDictionaryFinalize(&replacement, NULL);
-        return;
+        return SBFalse;
     }
 
     /* Copy each attribute item, retaining values through the registry */
@@ -149,6 +149,7 @@ SB_INTERNAL void AttributeDictionarySet(AttributeDictionaryRef dictionary,
 
     AttributeDictionaryFinalize(dictionary, registry);
     *dictionary = replacement;
+    return SBTrue;
 }
 
 SB_INTERNAL void AttributeDictionaryPut(AttributeDictionaryRef dictionary,

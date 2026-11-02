@@ -93,7 +93,7 @@ SB_INTERNAL SBBoolean AttributeDictionaryIsEmpty(AttributeDictionaryRef dictiona
  * @param registry
  *      The attribute registry for value lifecycle management.
  */
-SB_INTERNAL void AttributeDictionarySet(AttributeDictionaryRef dictionary,
+SB_INTERNAL SBBoolean AttributeDictionarySet(AttributeDictionaryRef dictionary,
     AttributeDictionaryRef other, SBAttributeRegistryRef registry);
 
 /**

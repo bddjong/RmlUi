@@ -11,9 +11,8 @@ public:
 		document = context->LoadDocument("basic/benchmark/data/benchmark.rml");
 		if (document != nullptr)
 		{
-			{
-				document->GetElementById("title")->SetInnerRML(title);
-			}
+			if (auto* element = document->GetElementById("title"))
+				element->SetInnerRML(title);
 
 			document->Show();
 		}
@@ -183,6 +182,14 @@ int main(int /*argc*/, char** /*argv*/)
 	Shell::LoadFonts();
 
 	Rml::UniquePtr<DemoWindow> window = Rml::MakeUnique<DemoWindow>("Benchmark sample", context);
+	if (!window->GetDocument())
+	{
+		window.reset();
+		Rml::Shutdown();
+		Backend::Shutdown();
+		Shell::Shutdown();
+		return -1;
+	}
 	window->GetDocument()->AddEventListener(Rml::EventId::Keydown, new Event("hello"));
 	window->GetDocument()->AddEventListener(Rml::EventId::Keyup, new Event("hello"));
 	window->GetDocument()->AddEventListener(Rml::EventId::Animationend, new Event("hello"));
@@ -220,8 +227,8 @@ int main(int /*argc*/, char** /*argv*/)
 		double elapsed = t - interval_start;
 		if (window && elapsed >= 0.5)
 		{
-			auto el = window->GetDocument()->GetElementById("fps");
-			el->SetInnerRML(Rml::CreateString("FPS: %f", count_frames / elapsed));
+			if (auto* el = window->GetDocument()->GetElementById("fps"))
+				el->SetInnerRML(Rml::CreateString("FPS: %f", count_frames / elapsed));
 			count_frames = 0;
 			interval_start = t;
 		}

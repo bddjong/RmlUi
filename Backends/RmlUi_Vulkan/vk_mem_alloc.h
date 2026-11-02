@@ -5910,12 +5910,12 @@ public:
     VkDeviceMemory GetDeviceMemory() const { return m_hMemory; }
     uint32_t GetMemoryTypeIndex() const { return m_MemoryTypeIndex; }
     uint32_t GetId() const { return m_Id; }
-    void* GetMappedData() const { return m_pMappedData; }
-    uint32_t GetMapRefCount() const { return m_MapCount; }
+    void* GetMappedData() const { VmaMutexLock lock(m_MapAndBindMutex, m_UseMutex); return m_pMappedData; }
+    uint32_t GetMapRefCount() const { VmaMutexLock lock(m_MapAndBindMutex, m_UseMutex); return m_MapCount; }
 
     // Call when allocation/free was made from m_pMetadata.
     // Used for m_MappingHysteresis.
-    void PostAlloc() { m_MappingHysteresis.PostAlloc(); }
+    void PostAlloc() { VmaMutexLock lock(m_MapAndBindMutex, m_UseMutex); m_MappingHysteresis.PostAlloc(); }
     void PostFree(VmaAllocator hAllocator);
 
     // Validates all data structures inside this object. If not valid, returns false.
@@ -5950,10 +5950,12 @@ private:
 
     /*
     Protects access to m_hMemory so it is not used by multiple threads simultaneously, e.g. vkMapMemory, vkBindBufferMemory.
-    Also protects m_MapCount, m_pMappedData.
+    Also protects m_MapCount, m_pMappedData and m_MappingHysteresis.
     Allocations, deallocations, any change in m_pMetadata is protected by parent's VmaBlockVector::m_Mutex.
+    When both locks are needed, acquire the vector lock first.
     */
-    VMA_MUTEX m_MapAndBindMutex;
+    mutable VMA_MUTEX m_MapAndBindMutex;
+    const bool m_UseMutex;
     VmaMappingHysteresis m_MappingHysteresis;
     uint32_t m_MapCount;
     void* m_pMappedData;
@@ -11717,11 +11719,13 @@ VmaDeviceMemoryBlock::VmaDeviceMemoryBlock(VmaAllocator hAllocator)
     m_MemoryTypeIndex(UINT32_MAX),
     m_Id(0),
     m_hMemory(VK_NULL_HANDLE),
+    m_UseMutex(hAllocator->m_UseMutex),
     m_MapCount(0),
     m_pMappedData(VMA_NULL) {}
 
 VmaDeviceMemoryBlock::~VmaDeviceMemoryBlock()
 {
+    // Block lifetime is exclusive at destruction; no allocation may still use it.
     VMA_ASSERT(m_MapCount == 0 && "VkDeviceMemory block is being destroyed while it is still mapped.");
     VMA_ASSERT(m_hMemory == VK_NULL_HANDLE);
 }
@@ -11778,6 +11782,7 @@ void VmaDeviceMemoryBlock::Destroy(VmaAllocator allocator)
 
 void VmaDeviceMemoryBlock::PostFree(VmaAllocator hAllocator)
 {
+    VmaMutexLock lock(m_MapAndBindMutex, m_UseMutex);
     if(m_MappingHysteresis.PostFree())
     {
         VMA_ASSERT(m_MappingHysteresis.GetExtraMapping() == 0);
@@ -11822,9 +11827,9 @@ VkResult VmaDeviceMemoryBlock::Map(VmaAllocator hAllocator, uint32_t count, void
 
     VmaMutexLock lock(m_MapAndBindMutex, hAllocator->m_UseMutex);
     const uint32_t oldTotalMapCount = m_MapCount + m_MappingHysteresis.GetExtraMapping();
-    m_MappingHysteresis.PostMap();
     if (oldTotalMapCount != 0)
     {
+        m_MappingHysteresis.PostMap();
         m_MapCount += count;
         VMA_ASSERT(m_pMappedData != VMA_NULL);
         if (ppData != VMA_NULL)
@@ -11835,15 +11840,18 @@ VkResult VmaDeviceMemoryBlock::Map(VmaAllocator hAllocator, uint32_t count, void
     }
     else
     {
+        void* mappedData = VMA_NULL;
         VkResult result = (*hAllocator->GetVulkanFunctions().vkMapMemory)(
             hAllocator->m_hDevice,
             m_hMemory,
             0, // offset
             VK_WHOLE_SIZE,
             0, // flags
-            &m_pMappedData);
+            &mappedData);
         if (result == VK_SUCCESS)
         {
+            m_pMappedData = mappedData;
+            m_MappingHysteresis.PostMap();
             if (ppData != VMA_NULL)
             {
                 *ppData = m_pMappedData;
@@ -12491,8 +12499,9 @@ VkResult VmaBlockVector::AllocatePage(
                     {
                         VmaDeviceMemoryBlock* const pCurrBlock = m_Blocks[blockIndex];
                         VMA_ASSERT(pCurrBlock);
-                        const bool isBlockMapped = pCurrBlock->GetMappedData() != VMA_NULL;
-                        if((mappingI == 0) == (isMappingAllowed == isBlockMapped))
+                        // Mapping can change between passes. Retry all blocks in the
+                        // second pass so a block cannot be skipped in both passes.
+                        if(mappingI == 1 || isMappingAllowed == (pCurrBlock->GetMappedData() != VMA_NULL))
                         {
                             VkResult res = AllocateFromBlock(
                                 pCurrBlock, size, alignment, createInfo.flags, createInfo.pUserData, suballocType, strategy, pAllocation);
@@ -12786,7 +12795,6 @@ VkResult VmaBlockVector::CommitAllocationRequest(
     const bool isMappingAllowed = (allocFlags &
         (VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT)) != 0;
 
-    pBlock->PostAlloc();
     // Allocate from pCurrBlock.
     if (mapped)
     {
@@ -12799,6 +12807,7 @@ VkResult VmaBlockVector::CommitAllocationRequest(
 
     *pAllocation = m_hAllocator->m_AllocationObjectAllocator.Allocate(isMappingAllowed);
     pBlock->m_pMetadata->Alloc(allocRequest, suballocType, *pAllocation);
+    pBlock->PostAlloc();
     (*pAllocation)->InitBlockAllocation(
         pBlock,
         allocRequest.allocHandle,

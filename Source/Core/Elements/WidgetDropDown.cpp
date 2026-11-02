@@ -464,7 +464,7 @@ void WidgetDropDown::DetachScrollEvent()
 
 void WidgetDropDown::ProcessEvent(Event& event)
 {
-	if (parent_element->IsDisabled())
+	if (parent_element->IsDisabled() && event.GetId() != EventId::Blur)
 		return;
 
 	// Process the button onclick

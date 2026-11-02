@@ -566,4 +566,30 @@ TEST_CASE("PropertySpecification.RegistrationIsTransactional")
 	CHECK(specification.RegisterShorthand("broken", "other", ShorthandType::FallThrough, next) == next);
 	CHECK(specification.RegisterShorthand("auto-fail", "missing", ShorthandType::FallThrough) == ShorthandId::Invalid);
 	CHECK(specification.RegisterShorthand("auto-retry", "first", ShorthandType::FallThrough) == static_cast<ShorthandId>(3));
+	CHECK(specification.RegisterShorthand("bad-id", "first", ShorthandType::FallThrough, ShorthandId::MaxNumIds) == ShorthandId::Invalid);
+	CHECK(specification.RegisterShorthand("bad-id", "first", ShorthandType::FallThrough) == static_cast<ShorthandId>(4));
+}
+
+TEST_CASE("PropertySpecification custom registration preserves existing definitions")
+{
+	TestsSystemInterface system_interface;
+	TestsRenderInterface render_interface;
+	SetRenderInterface(&render_interface);
+	SetSystemInterface(&system_interface);
+	Rml::Initialise();
+	const auto* original = StyleSheetSpecification::GetProperty("width");
+	REQUIRE(original);
+	system_interface.SetNumExpectedWarnings(2);
+	CHECK(StyleSheetSpecification::TryRegisterProperty("width", "0", false) == nullptr);
+	CHECK(StyleSheetSpecification::GetProperty("width") == original);
+	auto* custom = StyleSheetSpecification::TryRegisterProperty("audit-custom-property", "0", true, true);
+	REQUIRE(custom);
+	const PropertyId id = custom->GetId();
+	CHECK(StyleSheetSpecification::GetProperty(id) == custom);
+	CHECK(StyleSheetSpecification::GetPropertyId("audit-custom-property") == id);
+	CHECK(StyleSheetSpecification::GetPropertyName(id) == "audit-custom-property");
+	CHECK(StyleSheetSpecification::TryRegisterProperty("audit-custom-property", "0", false) == nullptr);
+	CHECK(StyleSheetSpecification::GetProperty(id) == custom);
+	system_interface.SetNumExpectedWarnings(0);
+	Rml::Shutdown();
 }

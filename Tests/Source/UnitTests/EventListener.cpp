@@ -2,6 +2,7 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/EventListenerInstancer.h>
 #include <RmlUi/Core/Factory.h>
@@ -213,6 +214,45 @@ TEST_CASE("input.cancel_and_detached_drag")
 		CHECK(click.count == 0);
 		CHECK(drop.count == 0);
 	}
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("event_listener.same_listener_in_both_phases")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	ElementDocument* document = context->LoadDocumentFromMemory(
+		"<rml><body><div id='parent'><button id='child'/></div></body></rml>");
+	REQUIRE(document);
+	Element* parent = document->GetElementById("parent");
+	Element* child = document->GetElementById("child");
+	REQUIRE(parent);
+	REQUIRE(child);
+	struct Listener : EventListener {
+		Vector<EventPhase> calls;
+		int attaches = 0, detaches = 0;
+		void OnAttach(Element*) override { ++attaches; }
+		void OnDetach(Element*) override { ++detaches; }
+		void ProcessEvent(Event& event) override { calls.push_back(event.GetPhase()); }
+	} listener;
+	parent->AddEventListener("click", &listener, true);
+	parent->AddEventListener("click", &listener, false);
+	parent->AddEventListener("click", &listener, true);
+	CHECK(listener.attaches == 2);
+	child->DispatchEvent("click", {});
+	CHECK((listener.calls == Vector<EventPhase>{EventPhase::Capture, EventPhase::Bubble}));
+	listener.calls.clear();
+	parent->RemoveEventListener("click", &listener, true);
+	child->DispatchEvent("click", {});
+	CHECK(listener.calls == Vector<EventPhase>{EventPhase::Bubble});
+	parent->AddEventListener("click", &listener, true);
+	parent->RemoveEventListener("click", &listener, false);
+	listener.calls.clear();
+	child->DispatchEvent("click", {});
+	CHECK(listener.calls == Vector<EventPhase>{EventPhase::Capture});
+	parent->RemoveEventListener("click", &listener, true);
+	CHECK(listener.detaches == 3);
 	document->Close();
 	TestsShell::ShutdownShell();
 }

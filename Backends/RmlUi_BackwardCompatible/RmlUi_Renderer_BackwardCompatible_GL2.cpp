@@ -5,6 +5,10 @@
 #include <RmlUi/Core/Platform.h>
 #include <string.h>
 #include <limits>
+#include <new>
+#include <cstdio>
+#include <cstring>
+#include <cstdint>
 
 #if defined RMLUI_PLATFORM_WIN32
 	#include "RmlUi_Include_Windows.h"
@@ -23,6 +27,53 @@
 #endif
 
 #define GL_CLAMP_TO_EDGE 0x812F
+
+// GL 2.1 and ARB_pixel_buffer_object can reinterpret client pointers as offsets.
+// Resolve buffer functions only when the active context supports pixel buffers.
+#if defined RMLUI_PLATFORM_WIN32
+using BindUnpackBuffer = void (APIENTRY*)(GLenum, GLuint);
+#else
+using BindUnpackBuffer = void (*)(GLenum, GLuint);
+#endif
+static bool GetUnpackBufferBinding(BindUnpackBuffer& bind_buffer)
+{
+	bind_buffer = nullptr;
+	const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+	int major = 0, minor = 0;
+	if (!version || std::sscanf(version, "%d.%d", &major, &minor) != 2)
+		return false;
+	if (major < 2 || (major == 2 && minor < 1))
+	{
+		const char* extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+		auto has_extension = [extensions](const char* name) {
+			if (!extensions) return false;
+			const size_t length = std::strlen(name);
+			const char* ext = extensions;
+			while ((ext = std::strstr(ext, name)))
+			{
+				if ((ext == extensions || ext[-1] == ' ') && (ext[length] == 0 || ext[length] == ' ')) return true;
+				ext += length;
+			}
+			return false;
+		};
+		if (!has_extension("GL_ARB_pixel_buffer_object") && !has_extension("GL_EXT_pixel_buffer_object"))
+			return true;
+	}
+#if defined RMLUI_PLATFORM_WIN32
+	bind_buffer = reinterpret_cast<BindUnpackBuffer>(wglGetProcAddress("glBindBuffer"));
+	if (!bind_buffer || reinterpret_cast<uintptr_t>(bind_buffer) <= 3 || reinterpret_cast<uintptr_t>(bind_buffer) == ~uintptr_t(0))
+		bind_buffer = reinterpret_cast<BindUnpackBuffer>(wglGetProcAddress("glBindBufferARB"));
+	if (reinterpret_cast<uintptr_t>(bind_buffer) <= 3 || reinterpret_cast<uintptr_t>(bind_buffer) == ~uintptr_t(0))
+		bind_buffer = nullptr;
+#elif defined RMLUI_PLATFORM_MACOSX
+	bind_buffer = &glBindBuffer;
+#elif defined RMLUI_PLATFORM_UNIX
+	bind_buffer = reinterpret_cast<BindUnpackBuffer>(glXGetProcAddressARB(reinterpret_cast<const GLubyte*>("glBindBuffer")));
+	if (!bind_buffer)
+		bind_buffer = reinterpret_cast<BindUnpackBuffer>(glXGetProcAddressARB(reinterpret_cast<const GLubyte*>("glBindBufferARB")));
+#endif
+	return bind_buffer != nullptr;
+}
 
 RenderInterface_BackwardCompatible_GL2::RenderInterface_BackwardCompatible_GL2() {}
 
@@ -184,9 +235,17 @@ bool RenderInterface_BackwardCompatible_GL2::LoadTexture(Rml::TextureHandle& tex
 		return false;
 	}
 
-	file_interface->Seek(file_handle, 0, SEEK_END);
+	if (!file_interface->Seek(file_handle, 0, SEEK_END))
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
 	size_t buffer_size = file_interface->Tell(file_handle);
-	file_interface->Seek(file_handle, 0, SEEK_SET);
+	if (!file_interface->Seek(file_handle, 0, SEEK_SET))
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
 
 	if (buffer_size <= sizeof(TGAHeader))
 	{
@@ -195,7 +254,12 @@ bool RenderInterface_BackwardCompatible_GL2::LoadTexture(Rml::TextureHandle& tex
 		return false;
 	}
 
-	char* buffer = new char[buffer_size];
+	char* buffer = new (std::nothrow) char[buffer_size];
+	if (!buffer)
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
 	const size_t bytes_read = file_interface->Read(buffer, buffer_size, file_handle);
 	file_interface->Close(file_handle);
 	if (bytes_read != buffer_size)
@@ -208,12 +272,17 @@ bool RenderInterface_BackwardCompatible_GL2::LoadTexture(Rml::TextureHandle& tex
 	memcpy(&header, buffer, sizeof(TGAHeader));
 
 	int color_mode = header.bitsPerPixel / 8;
-	const size_t width = static_cast<unsigned short>(header.width);
-	const size_t height = static_cast<unsigned short>(header.height);
+	// TGA dimensions are little-endian, independent of host byte order.
+	const auto* header_bytes = reinterpret_cast<const unsigned char*>(buffer);
+	const size_t width = size_t(header_bytes[12]) | (size_t(header_bytes[13]) << 8);
+	const size_t height = size_t(header_bytes[14]) | (size_t(header_bytes[15]) << 8);
 	const size_t id_length = static_cast<unsigned char>(header.idLength);
 	const size_t pixel_count = width * height;
+	const unsigned int alpha_bits = static_cast<unsigned char>(header.imageDescriptor) & 0x0f;
 
-	if (header.dataType != 2 || header.colourMapType != 0 || !width || !height)
+	if (header.dataType != 2 || header.colourMapType != 0 || !width || !height ||
+		(static_cast<unsigned char>(header.imageDescriptor) & 0xc0) != 0 ||
+		(alpha_bits != 0 && (header.bitsPerPixel != 32 || alpha_bits != 8)))
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24/32bit uncompressed TGAs are supported.");
 		delete[] buffer;
@@ -236,24 +305,30 @@ bool RenderInterface_BackwardCompatible_GL2::LoadTexture(Rml::TextureHandle& tex
 		return false;
 	}
 	const char* image_src = buffer + data_offset;
-	unsigned char* image_dest = new unsigned char[pixel_count * 4];
+	unsigned char* image_dest = new (std::nothrow) unsigned char[pixel_count * 4];
+	if (!image_dest)
+	{
+		delete[] buffer;
+		return false;
+	}
 
 	// Targa is BGR, swap to RGB and flip Y axis
 	for (size_t y = 0; y < height; y++)
 	{
 		size_t read_index = y * width * color_mode;
-		size_t write_index = ((header.imageDescriptor & 32) != 0 ? y : height - y - 1) * width * 4;
+		const size_t row = (header.imageDescriptor & 32) ? y : height - y - 1;
 		for (size_t x = 0; x < width; x++)
 		{
+			const size_t column = (header.imageDescriptor & 16) ? width - x - 1 : x;
+			const size_t write_index = (row * width + column) * 4;
 			image_dest[write_index] = image_src[read_index + 2];
 			image_dest[write_index + 1] = image_src[read_index + 1];
 			image_dest[write_index + 2] = image_src[read_index];
-			if (color_mode == 4)
+			if (color_mode == 4 && alpha_bits == 8)
 				image_dest[write_index + 3] = image_src[read_index + 3];
 			else
 				image_dest[write_index + 3] = 255;
 
-			write_index += 4;
 			read_index += color_mode;
 		}
 	}
@@ -272,6 +347,13 @@ bool RenderInterface_BackwardCompatible_GL2::LoadTexture(Rml::TextureHandle& tex
 bool RenderInterface_BackwardCompatible_GL2::GenerateTexture(Rml::TextureHandle& texture_handle, const Rml::byte* source,
 	const Rml::Vector2i& source_dimensions)
 {
+	GLint max_size = 0;
+	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
+	if (source_dimensions.x <= 0 || source_dimensions.y <= 0 || source_dimensions.x > max_size || source_dimensions.y > max_size)
+		return false;
+	BindUnpackBuffer bind_unpack_buffer;
+	if (!GetUnpackBufferBinding(bind_unpack_buffer))
+		return false;
 	GLuint texture_id = 0;
 	glGenTextures(1, &texture_id);
 	if (texture_id == 0)
@@ -280,15 +362,47 @@ bool RenderInterface_BackwardCompatible_GL2::GenerateTexture(Rml::TextureHandle&
 		return false;
 	}
 
+	GLint previous_texture = 0, alignment = 0, row_length = 0, skip_rows = 0, skip_pixels = 0;
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+	glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+	glGetIntegerv(GL_UNPACK_ROW_LENGTH, &row_length);
+	glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skip_rows);
+	glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skip_pixels);
+	GLint unpack_buffer = 0;
+	if (bind_unpack_buffer)
+	{
+		glGetIntegerv(0x88EF, &unpack_buffer); // GL_PIXEL_UNPACK_BUFFER_BINDING
+		bind_unpack_buffer(0x88EC, 0); // GL_PIXEL_UNPACK_BUFFER
+	}
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
 	glBindTexture(GL_TEXTURE_2D, texture_id);
 
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, source_dimensions.x, source_dimensions.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, source);
+	if (bind_unpack_buffer)
+		bind_unpack_buffer(0x88EC, unpack_buffer);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, row_length);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, skip_rows);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, skip_pixels);
+	GLint uploaded_width = 0, uploaded_height = 0;
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &uploaded_width);
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &uploaded_height);
+	if (uploaded_width != source_dimensions.x || uploaded_height != source_dimensions.y)
+	{
+		glBindTexture(GL_TEXTURE_2D, previous_texture);
+		glDeleteTextures(1, &texture_id);
+		return false;
+	}
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
+	glBindTexture(GL_TEXTURE_2D, previous_texture);
 	texture_handle = (Rml::TextureHandle)texture_id;
 
 	return true;

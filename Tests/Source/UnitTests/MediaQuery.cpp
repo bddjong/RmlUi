@@ -606,3 +606,60 @@ TEST_CASE("mediaquery.ratio_parser_rejects_malformed_values")
 	for (const char* value : {"1x/2", "1/2junk", "1//2", "1/0", "-1/2", "nan/2", "1/inf", "1e999/2", "/2", "1/"})
 		CHECK_FALSE(parser.ParseValue(property, value, parameters));
 }
+
+TEST_CASE("mediaquery.ratio_evaluation_boundaries")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	context->SetDimensions(Vector2i(600, 400));
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+	<rml><head><style>
+	div { display: block; width: 10px; height: 10px; }
+	@media (aspect-ratio: 3/2) and (min-aspect-ratio: 1.5/1) and (max-aspect-ratio: 6/4) { div { width: 20px; } }
+	@media not (min-aspect-ratio: 2/1) and (max-width: 700px) { div { height: 30px; } }
+	@media (min-aspect-ratio: 2e38/1e38) { div { width: 40px; } }
+	</style></head><body><div/></body></rml>)");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	ElementList elements;
+	document->GetElementsByTagName(elements, "div");
+	REQUIRE(elements.size() == 1);
+	CHECK(elements[0]->GetBox().GetSize() == Vector2f(20.f, 30.f));
+	context->SetDimensions(Vector2i(800, 400));
+	context->Update();
+	CHECK(elements[0]->GetBox().GetSize() == Vector2f(40.f, 30.f));
+	context->SetDimensions(Vector2i(600, 600));
+	context->Update();
+	CHECK(elements[0]->GetBox().GetSize() == Vector2f(10.f, 30.f));
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("mediaquery.invalid_ratios_discard_whole_query")
+{
+	Context* context = TestsShell::GetContext();
+	REQUIRE(context);
+	context->SetDimensions(Vector2i(600, 400));
+	const char* values[] = {"1x/2", "1/2junk", "1//2", "1/0", "0/1", "-1/2", "1/-2", "nan/2", "1/inf", "1e999/2", "/2", "1/"};
+	for (const char* value : values)
+	{
+		INFO("ratio: ", value);
+		TestsShell::SetNumExpectedWarnings(2);
+		String source = String("<rml><head><style>div { display: block; width: 10px; height: 10px; }") +
+			"@media (aspect-ratio: " + value + ") { div { width: 20px; } }" +
+			"@media not (min-width: 1px) and (max-aspect-ratio: " + value + ") { div { height: 30px; } }" +
+			"</style></head><body><div/></body></rml>";
+		ElementDocument* document = context->LoadDocumentFromMemory(source);
+		REQUIRE(document);
+		document->Show();
+		context->Update();
+		ElementList elements;
+		document->GetElementsByTagName(elements, "div");
+		REQUIRE(elements.size() == 1);
+		CHECK(elements[0]->GetBox().GetSize() == Vector2f(10.f, 10.f));
+		document->Close();
+		context->Update();
+	}
+	TestsShell::ShutdownShell();
+}

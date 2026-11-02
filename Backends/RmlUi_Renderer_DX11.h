@@ -219,6 +219,7 @@ private:
 			Rml::Vector2f v;
 			Rml::Vector4f stop_colors[16];
 			float stop_positions[16];
+			Rml::Vector4f repeat_end;
 		} gradient;
 		struct Blur {
 			int _padding[18];

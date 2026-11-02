@@ -9,6 +9,8 @@
 #include <RmlUi/Core/SystemInterface.h>
 #include <algorithm>
 #include <string.h>
+#include <limits>
+#include <new>
 
 #if defined RMLUI_PLATFORM_WIN32_NATIVE
 	// function call missing argument list
@@ -108,16 +110,30 @@ uniform vec2 _v;   // linear: vector to ending point, radial: 2d curvature (inve
 uniform vec4 _stop_colors[MAX_NUM_STOPS];
 uniform float _stop_positions[MAX_NUM_STOPS]; // normalized, 0 -> starting point, 1 -> ending point
 uniform int _num_stops;
+uniform float _repeat_end;
 
 in vec2 fragTexCoord;
 in vec4 fragColor;
 out vec4 finalColor;
 
+// Equally spaced stops: endpoints have half the weight of interior stops.
+vec4 average_stop_colors() {
+    if (_num_stops == 1) return _stop_colors[0];
+    vec4 color = 0.5 * (_stop_colors[0] + _stop_colors[_num_stops - 1]);
+    for (int i = 1; i < _num_stops - 1; i++)
+        color += _stop_colors[i];
+    return color / float(_num_stops - 1);
+}
+
 vec4 mix_stop_colors(float t) {
 	vec4 color = _stop_colors[0];
 
-	for (int i = 1; i < _num_stops; i++)
-		color = mix(color, _stop_colors[i], smoothstep(_stop_positions[i-1], _stop_positions[i], t));
+	for (int i = 1; i < _num_stops; i++) {
+		float previous = _stop_positions[i-1];
+		float current = _stop_positions[i];
+		float blend = current > previous ? clamp((t - previous) / (current - previous), 0.0, 1.0) : step(current, t);
+		color = mix(color, _stop_colors[i], blend);
+	}
 
 	return color;
 }
@@ -129,7 +145,7 @@ void main() {
 	{
 		float dist_square = dot(_v, _v);
 		vec2 V = fragTexCoord - _p;
-		t = dot(_v, V) / dist_square;
+		t = dist_square > 0.0 ? dot(_v, V) / dist_square : 0.0;
 	}
 	else if (_func == RADIAL || _func == REPEATING_RADIAL)
 	{
@@ -146,7 +162,8 @@ void main() {
 	if (_func == REPEATING_LINEAR || _func == REPEATING_RADIAL || _func == REPEATING_CONIC)
 	{
 		float t0 = _stop_positions[0];
-		float t1 = _stop_positions[_num_stops - 1];
+		float t1 = _repeat_end;
+		if (t1 <= t0) { finalColor = fragColor * average_stop_colors(); return; }
 		t = t0 + mod(t - t0, t1 - t0);
 	}
 
@@ -333,6 +350,7 @@ enum class UniformId {
 	StopColors,
 	StopPositions,
 	NumStops,
+	RepeatEnd,
 	Value,
 	Dimensions,
 	Count,
@@ -342,7 +360,7 @@ namespace Gfx {
 
 static const char* const program_uniform_names[(size_t)UniformId::Count] = {"_translate", "_transform", "_tex", "_color", "_color_matrix",
 	"_texelOffset", "_texCoordMin", "_texCoordMax", "_texMask", "_weights[0]", "_func", "_p", "_v", "_stop_colors[0]", "_stop_positions[0]",
-	"_num_stops", "_value", "_dimensions"};
+	"_num_stops", "_repeat_end", "_value", "_dimensions"};
 
 enum class VertexAttribute { Position, Color0, TexCoord0, Count };
 static const char* const vertex_attribute_names[(size_t)VertexAttribute::Count] = {"inPosition", "inColor0", "inTexCoord0"};
@@ -603,15 +621,34 @@ static bool CreateFramebuffer(FramebufferData& out_fb, int width, int height, in
 	constexpr GLint min_mag_filter = GL_LINEAR; // GL_NEAREST
 	const Rml::Colourf border_color(0.f, 0.f);
 
-	GLuint framebuffer = 0;
-	glGenFramebuffers(1, &framebuffer);
-	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+	GLint previous_read_framebuffer, previous_draw_framebuffer, previous_texture, previous_renderbuffer;
+	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read_framebuffer);
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_framebuffer);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+	glGetIntegerv(GL_RENDERBUFFER_BINDING, &previous_renderbuffer);
 
+	GLuint framebuffer = 0;
 	GLuint color_tex_buffer = 0;
 	GLuint color_render_buffer = 0;
+	GLuint depth_stencil_buffer = 0;
+	auto cleanup = [&]() {
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_framebuffer);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_framebuffer);
+		glBindTexture(GL_TEXTURE_2D, previous_texture);
+		glBindRenderbuffer(GL_RENDERBUFFER, previous_renderbuffer);
+		if (framebuffer) glDeleteFramebuffers(1, &framebuffer);
+		if (color_tex_buffer) glDeleteTextures(1, &color_tex_buffer);
+		if (color_render_buffer) glDeleteRenderbuffers(1, &color_render_buffer);
+		if (depth_stencil_buffer && !shared_depth_stencil_buffer) glDeleteRenderbuffers(1, &depth_stencil_buffer);
+	};
+
+	glGenFramebuffers(1, &framebuffer);
+	if (!framebuffer) { cleanup(); return false; }
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 	if (samples > 0)
 	{
 		glGenRenderbuffers(1, &color_render_buffer);
+		if (!color_render_buffer) { cleanup(); return false; }
 		glBindRenderbuffer(GL_RENDERBUFFER, color_render_buffer);
 		glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, color_format, width, height);
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color_render_buffer);
@@ -619,8 +656,13 @@ static bool CreateFramebuffer(FramebufferData& out_fb, int width, int height, in
 	else
 	{
 		glGenTextures(1, &color_tex_buffer);
+		if (!color_tex_buffer) { cleanup(); return false; }
 		glBindTexture(GL_TEXTURE_2D, color_tex_buffer);
+		GLint previous_unpack_buffer = 0;
+		glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &previous_unpack_buffer);
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 		glTexImage2D(GL_TEXTURE_2D, 0, color_format, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, previous_unpack_buffer);
 
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_mag_filter);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, min_mag_filter);
@@ -634,7 +676,6 @@ static bool CreateFramebuffer(FramebufferData& out_fb, int width, int height, in
 	}
 
 	// Create depth/stencil buffer storage attachment.
-	GLuint depth_stencil_buffer = 0;
 	if (attachment != FramebufferAttachment::None)
 	{
 		if (shared_depth_stencil_buffer)
@@ -646,6 +687,7 @@ static bool CreateFramebuffer(FramebufferData& out_fb, int width, int height, in
 		{
 			// Create new depth/stencil buffer
 			glGenRenderbuffers(1, &depth_stencil_buffer);
+			if (!depth_stencil_buffer) { cleanup(); return false; }
 			glBindRenderbuffer(GL_RENDERBUFFER, depth_stencil_buffer);
 
 			glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, width, height);
@@ -655,15 +697,17 @@ static bool CreateFramebuffer(FramebufferData& out_fb, int width, int height, in
 	}
 
 	const GLuint framebuffer_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_framebuffer);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_framebuffer);
+	glBindTexture(GL_TEXTURE_2D, previous_texture);
+	glBindRenderbuffer(GL_RENDERBUFFER, previous_renderbuffer);
+
 	if (framebuffer_status != GL_FRAMEBUFFER_COMPLETE)
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "OpenGL framebuffer could not be generated. Error code %x.", framebuffer_status);
+		cleanup();
 		return false;
 	}
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
 	CheckGLError("CreateFramebuffer");
 
@@ -694,21 +738,56 @@ static void DestroyFramebuffer(FramebufferData& fb)
 
 static GLuint CreateTexture(Rml::Span<const Rml::byte> source_data, Rml::Vector2i source_dimensions)
 {
+	GLint max_size = 0;
+	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
+	if (source_dimensions.x <= 0 || source_dimensions.y <= 0 || source_dimensions.x > max_size || source_dimensions.y > max_size)
+		return 0;
 	GLuint texture_id = 0;
 	glGenTextures(1, &texture_id);
 	if (texture_id == 0)
 		return 0;
 
+	GLint previous_texture = 0;
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+	GLint unpack_alignment = 0, unpack_row_length = 0, unpack_skip_rows = 0, unpack_skip_pixels = 0, unpack_buffer = 0;
+	glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack_alignment);
+	glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack_row_length);
+	glGetIntegerv(GL_UNPACK_SKIP_ROWS, &unpack_skip_rows);
+	glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &unpack_skip_pixels);
+	glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
 	glBindTexture(GL_TEXTURE_2D, texture_id);
 
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, source_dimensions.x, source_dimensions.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, source_data.data());
+	glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, unpack_row_length);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, unpack_skip_rows);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, unpack_skip_pixels);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpack_buffer);
+// GLES 3.0 and WebGL 2 cannot query level dimensions. On those APIs, a
+	// nonzero handle means submission only; allocation failure remains in GL error state.
+#if !defined RMLUI_PLATFORM_EMSCRIPTEN && !defined __ANDROID__
+	GLint uploaded_width = 0, uploaded_height = 0;
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &uploaded_width);
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &uploaded_height);
+	if (uploaded_width != source_dimensions.x || uploaded_height != source_dimensions.y)
+	{
+		glBindTexture(GL_TEXTURE_2D, previous_texture);
+		glDeleteTextures(1, &texture_id);
+		return 0;
+	}
+#endif
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-	glBindTexture(GL_TEXTURE_2D, 0);
+	glBindTexture(GL_TEXTURE_2D, previous_texture);
 
 	return texture_id;
 }
@@ -812,6 +891,8 @@ void RenderInterface_GL3::SetViewport(int width, int height, int offset_x, int o
 
 void RenderInterface_GL3::BeginFrame()
 {
+	if (frame_active) return;
+	frame_active = true;
 	RMLUI_ASSERT(viewport_width >= 1 && viewport_height >= 1);
 
 	// Backup GL state.
@@ -820,11 +901,25 @@ void RenderInterface_GL3::BeginFrame()
 	glstate_backup.enable_stencil_test = glIsEnabled(GL_STENCIL_TEST);
 	glstate_backup.enable_scissor_test = glIsEnabled(GL_SCISSOR_TEST);
 	glstate_backup.enable_depth_test = glIsEnabled(GL_DEPTH_TEST);
+#if !defined(RMLUI_PLATFORM_EMSCRIPTEN) && !defined(__ANDROID__)
+	glstate_backup.enable_framebuffer_srgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
+#endif
+	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &glstate_backup.read_framebuffer);
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &glstate_backup.draw_framebuffer);
+	glGetIntegerv(GL_RENDERBUFFER_BINDING, &glstate_backup.renderbuffer);
+	glGetIntegerv(GL_CURRENT_PROGRAM, &glstate_backup.program);
+	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &glstate_backup.vertex_array);
+	glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &glstate_backup.array_buffer);
+	glGetFloatv(GL_BLEND_COLOR, glstate_backup.blend_color);
+	glGetIntegerv(GL_ACTIVE_TEXTURE, &glstate_backup.active_texture);
+	glActiveTexture(GL_TEXTURE0);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &glstate_backup.texture0);
+	glActiveTexture(GL_TEXTURE1);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &glstate_backup.texture1);
+
 
 	glGetIntegerv(GL_VIEWPORT, glstate_backup.viewport);
 	glGetIntegerv(GL_SCISSOR_BOX, glstate_backup.scissor);
-
-	glGetIntegerv(GL_ACTIVE_TEXTURE, &glstate_backup.active_texture);
 
 	glGetIntegerv(GL_STENCIL_CLEAR_VALUE, &glstate_backup.stencil_clear_value);
 	glGetFloatv(GL_COLOR_CLEAR_VALUE, glstate_backup.color_clear_value);
@@ -858,6 +953,7 @@ void RenderInterface_GL3::BeginFrame()
 
 	glClearStencil(0);
 	glClearColor(0, 0, 0, 0);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
 	glActiveTexture(GL_TEXTURE0);
 
@@ -884,8 +980,12 @@ void RenderInterface_GL3::BeginFrame()
 	SetTransform(nullptr);
 
 	render_layers.BeginFrame(viewport_width, viewport_height);
+	frame_failed = !render_layers.IsValid();
+	if (!frame_failed)
+	{
 	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetTopLayer().framebuffer);
 	glClear(GL_COLOR_BUFFER_BIT);
+	}
 
 	UseProgram(ProgramId::None);
 	program_transform_dirty.set();
@@ -896,6 +996,16 @@ void RenderInterface_GL3::BeginFrame()
 
 void RenderInterface_GL3::EndFrame()
 {
+	if (!frame_active) return;
+	if (!frame_failed && !render_layers.IsBalanced())
+	{
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Unbalanced render layer stack at EndFrame.");
+		frame_failed = true;
+	}
+	if (!frame_failed)
+		EnsurePostprocess(1);
+	if (!frame_failed)
+	{
 	const Gfx::FramebufferData& fb_active = render_layers.GetTopLayer();
 	const Gfx::FramebufferData& fb_postprocess = render_layers.GetPostprocessPrimary();
 
@@ -906,8 +1016,10 @@ void RenderInterface_GL3::EndFrame()
 	glBlitFramebuffer(0, 0, fb_active.width, fb_active.height, 0, 0, fb_postprocess.width, fb_postprocess.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
 	// Draw to backbuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, glstate_backup.draw_framebuffer);
 	glViewport(viewport_offset_x, viewport_offset_y, viewport_width, viewport_height);
+	glColorMask(glstate_backup.color_writemask[0], glstate_backup.color_writemask[1], glstate_backup.color_writemask[2],
+		glstate_backup.color_writemask[3]);
 
 	// Assuming we have an opaque background, we can just write to it with the premultiplied alpha blend mode and we'll get the correct result.
 	// Instead, if we had a transparent destination that didn't use premultiplied alpha, we would need to perform a manual un-premultiplication step.
@@ -915,6 +1027,7 @@ void RenderInterface_GL3::EndFrame()
 	Gfx::BindTexture(fb_postprocess);
 	UseProgram(ProgramId::Passthrough);
 	DrawFullscreenQuad();
+	}
 
 	render_layers.EndFrame();
 
@@ -947,6 +1060,21 @@ void RenderInterface_GL3::EndFrame()
 	glViewport(glstate_backup.viewport[0], glstate_backup.viewport[1], glstate_backup.viewport[2], glstate_backup.viewport[3]);
 	glScissor(glstate_backup.scissor[0], glstate_backup.scissor[1], glstate_backup.scissor[2], glstate_backup.scissor[3]);
 
+#if !defined(RMLUI_PLATFORM_EMSCRIPTEN) && !defined(__ANDROID__)
+	if (glstate_backup.enable_framebuffer_srgb) glEnable(GL_FRAMEBUFFER_SRGB);
+	else glDisable(GL_FRAMEBUFFER_SRGB);
+#endif
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, glstate_backup.read_framebuffer);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, glstate_backup.draw_framebuffer);
+	glBindRenderbuffer(GL_RENDERBUFFER, glstate_backup.renderbuffer);
+	glUseProgram(glstate_backup.program);
+	glBindVertexArray(glstate_backup.vertex_array);
+	glBindBuffer(GL_ARRAY_BUFFER, glstate_backup.array_buffer);
+	glBlendColor(glstate_backup.blend_color[0], glstate_backup.blend_color[1], glstate_backup.blend_color[2], glstate_backup.blend_color[3]);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, glstate_backup.texture0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, glstate_backup.texture1);
 	glActiveTexture(glstate_backup.active_texture);
 
 	glClearStencil(glstate_backup.stencil_clear_value);
@@ -968,11 +1096,15 @@ void RenderInterface_GL3::EndFrame()
 	glStencilOpSeparate(GL_BACK, glstate_backup.stencil_back.fail, glstate_backup.stencil_back.pass_depth_fail,
 		glstate_backup.stencil_back.pass_depth_pass);
 
+	frame_failed = false;
+	frame_active = false;
 	Gfx::CheckGLError("EndFrame");
 }
 
 void RenderInterface_GL3::Clear()
 {
+	// Backends clear the window before beginning the renderer frame.
+	if (frame_failed) return;
 	glClearColor(0, 0, 0, 1);
 	glClear(GL_COLOR_BUFFER_BIT);
 }
@@ -1024,6 +1156,7 @@ Rml::CompiledGeometryHandle RenderInterface_GL3::CompileGeometry(Rml::Span<const
 
 void RenderInterface_GL3::RenderGeometry(Rml::CompiledGeometryHandle handle, Rml::Vector2f translation, Rml::TextureHandle texture)
 {
+	if (!frame_active || frame_failed) return;
 	Gfx::CompiledGeometryData* geometry = (Gfx::CompiledGeometryData*)handle;
 
 	if (texture == TexturePostprocess)
@@ -1104,6 +1237,7 @@ void RenderInterface_GL3::SetScissor(Rml::Rectanglei region, bool vertically_fli
 
 void RenderInterface_GL3::EnableScissorRegion(bool enable)
 {
+	if (!frame_active || frame_failed) return;
 	// Assume enable is immediately followed by a SetScissorRegion() call, and ignore it here.
 	if (!enable)
 		SetScissor(Rml::Rectanglei::MakeInvalid(), false);
@@ -1111,11 +1245,13 @@ void RenderInterface_GL3::EnableScissorRegion(bool enable)
 
 void RenderInterface_GL3::SetScissorRegion(Rml::Rectanglei region)
 {
+	if (!frame_active || frame_failed) return;
 	SetScissor(region);
 }
 
 void RenderInterface_GL3::EnableClipMask(bool enable)
 {
+	if (!frame_active || frame_failed) return;
 	if (enable)
 		glEnable(GL_STENCIL_TEST);
 	else
@@ -1124,6 +1260,7 @@ void RenderInterface_GL3::EnableClipMask(bool enable)
 
 void RenderInterface_GL3::RenderToClipMask(Rml::ClipMaskOperation operation, Rml::CompiledGeometryHandle geometry, Rml::Vector2f translation)
 {
+	if (!frame_active || frame_failed) return;
 	RMLUI_ASSERT(glIsEnabled(GL_STENCIL_TEST));
 	using Rml::ClipMaskOperation;
 
@@ -1196,9 +1333,17 @@ Rml::TextureHandle RenderInterface_GL3::LoadTexture(Rml::Vector2i& texture_dimen
 		return false;
 	}
 
-	file_interface->Seek(file_handle, 0, SEEK_END);
+	if (!file_interface->Seek(file_handle, 0, SEEK_END))
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
 	size_t buffer_size = file_interface->Tell(file_handle);
-	file_interface->Seek(file_handle, 0, SEEK_SET);
+	if (!file_interface->Seek(file_handle, 0, SEEK_SET))
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
 
 	if (buffer_size <= sizeof(TGAHeader))
 	{
@@ -1208,45 +1353,59 @@ Rml::TextureHandle RenderInterface_GL3::LoadTexture(Rml::Vector2i& texture_dimen
 	}
 
 	using Rml::byte;
-	Rml::UniquePtr<byte[]> buffer(new byte[buffer_size]);
-	file_interface->Read(buffer.get(), buffer_size, file_handle);
+	Rml::UniquePtr<byte[]> buffer(new (std::nothrow) byte[buffer_size]);
+	if (!buffer)
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
+	const size_t bytes_read = file_interface->Read(buffer.get(), buffer_size, file_handle);
 	file_interface->Close(file_handle);
+	if (bytes_read != buffer_size)
+	{
+		return false;
+	}
 
 	TGAHeader header;
 	memcpy(&header, buffer.get(), sizeof(TGAHeader));
 
-	int color_mode = header.bitsPerPixel / 8;
-	const size_t image_size = header.width * header.height * 4; // We always make 32bit textures
-
-	if (header.dataType != 2)
+	// TGA dimensions are little-endian, independent of host byte order.
+	const auto* header_bytes = reinterpret_cast<const unsigned char*>(buffer.get());
+	const size_t width = size_t(header_bytes[12]) | (size_t(header_bytes[13]) << 8);
+	const size_t height = size_t(header_bytes[14]) | (size_t(header_bytes[15]) << 8);
+	const size_t color_mode = static_cast<unsigned char>(header.bitsPerPixel) / 8;
+	const size_t data_offset = sizeof(TGAHeader) + static_cast<unsigned char>(header.idLength);
+	const size_t pixel_count = width * height;
+	const unsigned int alpha_bits = static_cast<unsigned char>(header.imageDescriptor) & 0x0f;
+	if (header.dataType != 2 || header.colourMapType != 0 || !width || !height ||
+		(header.bitsPerPixel != 24 && header.bitsPerPixel != 32) ||
+		(static_cast<unsigned char>(header.imageDescriptor) & 0xc0) != 0 ||
+		(alpha_bits != 0 && (header.bitsPerPixel != 32 || alpha_bits != 8)) ||
+		pixel_count > std::numeric_limits<size_t>::max() / 4 || data_offset > buffer_size ||
+		pixel_count > (buffer_size - data_offset) / color_mode)
 	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24/32bit uncompressed TGAs are supported.");
 		return false;
 	}
-
-	// Ensure we have at least 3 colors
-	if (color_mode < 3)
-	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24 and 32bit textures are supported.");
+	const size_t image_size = pixel_count * 4;
+	const byte* image_src = buffer.get() + data_offset;
+	Rml::UniquePtr<byte[]> image_dest_buffer(new (std::nothrow) byte[image_size]);
+	if (!image_dest_buffer)
 		return false;
-	}
-
-	const byte* image_src = buffer.get() + sizeof(TGAHeader);
-	Rml::UniquePtr<byte[]> image_dest_buffer(new byte[image_size]);
 	byte* image_dest = image_dest_buffer.get();
-	const bool top_to_bottom_order = ((header.imageDescriptor & 32) != 0);
 
 	// Targa is BGR, swap to RGB, flip Y axis as necessary, and convert to premultiplied alpha.
-	for (long y = 0; y < header.height; y++)
+	for (size_t y = 0; y < height; y++)
 	{
-		long read_index = y * header.width * color_mode;
-		long write_index = top_to_bottom_order ? (y * header.width * 4) : (header.height - y - 1) * header.width * 4;
-		for (long x = 0; x < header.width; x++)
+		size_t read_index = y * width * color_mode;
+		const size_t row = (header.imageDescriptor & 32) ? y : height - y - 1;
+		for (size_t x = 0; x < width; x++)
 		{
+			const size_t column = (header.imageDescriptor & 16) ? width - x - 1 : x;
+			const size_t write_index = (row * width + column) * 4;
 			image_dest[write_index] = image_src[read_index + 2];
 			image_dest[write_index + 1] = image_src[read_index + 1];
 			image_dest[write_index + 2] = image_src[read_index];
-			if (color_mode == 4)
+			if (color_mode == 4 && alpha_bits == 8)
 			{
 				const byte alpha = image_src[read_index + 3];
 				for (size_t j = 0; j < 3; j++)
@@ -1256,20 +1415,22 @@ Rml::TextureHandle RenderInterface_GL3::LoadTexture(Rml::Vector2i& texture_dimen
 			else
 				image_dest[write_index + 3] = 255;
 
-			write_index += 4;
 			read_index += color_mode;
 		}
 	}
 
-	texture_dimensions.x = header.width;
-	texture_dimensions.y = header.height;
+	texture_dimensions.x = static_cast<int>(width);
+	texture_dimensions.y = static_cast<int>(height);
 
 	return GenerateTexture({image_dest, image_size}, texture_dimensions);
 }
 
 Rml::TextureHandle RenderInterface_GL3::GenerateTexture(Rml::Span<const Rml::byte> source_data, Rml::Vector2i source_dimensions)
 {
-	RMLUI_ASSERT(source_data.data() && source_data.size() == size_t(source_dimensions.x * source_dimensions.y * 4));
+	if (!source_data.data() || source_dimensions.x <= 0 || source_dimensions.y <= 0 ||
+		size_t(source_dimensions.x) > std::numeric_limits<size_t>::max() / size_t(source_dimensions.y) / 4 ||
+		source_data.size() != size_t(source_dimensions.x) * size_t(source_dimensions.y) * 4)
+		return {};
 
 	GLuint texture_id = Gfx::CreateTexture(source_data, source_dimensions);
 	if (texture_id == 0)
@@ -1615,6 +1776,7 @@ struct CompiledShader {
 	ShaderGradientFunction gradient_function;
 	Rml::Vector2f p;
 	Rml::Vector2f v;
+	float repeat_end = 0.f;
 	Rml::Vector<float> stop_positions;
 	Rml::Vector<Rml::Colourf> stop_colors;
 
@@ -1628,6 +1790,22 @@ Rml::CompiledShaderHandle RenderInterface_GL3::CompileShader(const Rml::String& 
 		auto it = shader_parameters.find("color_stop_list");
 		RMLUI_ASSERT(it != shader_parameters.end() && it->second.GetType() == Rml::Variant::COLORSTOPLIST);
 		const Rml::ColorStopList& color_stop_list = it->second.GetReference<Rml::ColorStopList>();
+		shader.repeat_end = color_stop_list.back().position.number;
+		// Preserve the complete stop list when averaging a degenerate repeat, even
+		// when the shader's uniform array cannot hold every stop.
+		if (Rml::Get(shader_parameters, "repeating", false) && color_stop_list.size() > MAX_NUM_STOPS &&
+			color_stop_list.front().position.number == color_stop_list.back().position.number)
+		{
+			Rml::Colourf average = ConvertToColorf(color_stop_list.front().color) * 0.5f;
+			for (size_t i = 1; i + 1 < color_stop_list.size(); ++i)
+				average += ConvertToColorf(color_stop_list[i].color);
+			average += ConvertToColorf(color_stop_list.back().color) * 0.5f;
+			average *= 1.f / float(color_stop_list.size() - 1);
+			shader.stop_positions.assign(2, color_stop_list.front().position.number);
+			shader.stop_colors.assign(2, average);
+			return;
+		}
+		// Interpolate the first 16 stops; retain the full-list endpoint for the repeat period.
 		const int num_stops = Rml::Math::Min((int)color_stop_list.size(), MAX_NUM_STOPS);
 
 		shader.stop_positions.resize(num_stops);
@@ -1691,6 +1869,7 @@ Rml::CompiledShaderHandle RenderInterface_GL3::CompileShader(const Rml::String& 
 void RenderInterface_GL3::RenderShader(Rml::CompiledShaderHandle shader_handle, Rml::CompiledGeometryHandle geometry_handle,
 	Rml::Vector2f translation, Rml::TextureHandle /*texture*/)
 {
+	if (!frame_active || frame_failed) return;
 	RMLUI_ASSERT(shader_handle && geometry_handle);
 	const CompiledShader& shader = *reinterpret_cast<CompiledShader*>(shader_handle);
 	const CompiledShaderType type = shader.type;
@@ -1708,6 +1887,7 @@ void RenderInterface_GL3::RenderShader(Rml::CompiledShaderHandle shader_handle, 
 		glUniform2f(GetUniformLocation(UniformId::P), shader.p.x, shader.p.y);
 		glUniform2f(GetUniformLocation(UniformId::V), shader.v.x, shader.v.y);
 		glUniform1i(GetUniformLocation(UniformId::NumStops), num_stops);
+		glUniform1f(GetUniformLocation(UniformId::RepeatEnd), shader.repeat_end);
 		glUniform1fv(GetUniformLocation(UniformId::StopPositions), num_stops, shader.stop_positions.data());
 		glUniform4fv(GetUniformLocation(UniformId::StopColors), num_stops, shader.stop_colors.data()->data());
 
@@ -1746,6 +1926,13 @@ void RenderInterface_GL3::ReleaseShader(Rml::CompiledShaderHandle shader_handle)
 	delete reinterpret_cast<CompiledShader*>(shader_handle);
 }
 
+bool RenderInterface_GL3::EnsurePostprocess(int mask)
+{
+	if (!render_layers.EnsurePostprocess(mask))
+		frame_failed = true;
+	return !frame_failed;
+}
+
 void RenderInterface_GL3::BlitLayerToPostprocessPrimary(Rml::LayerHandle layer_handle)
 {
 	const Gfx::FramebufferData& source = render_layers.GetLayer(layer_handle);
@@ -1763,6 +1950,10 @@ void RenderInterface_GL3::RenderFilters(Rml::Span<const Rml::CompiledFilterHandl
 	{
 		const CompiledFilter& filter = *reinterpret_cast<const CompiledFilter*>(filter_handle);
 		const FilterType type = filter.type;
+		int needed = 3;
+		if (type == FilterType::DropShadow && filter.sigma >= 0.5f) needed |= 4;
+		if (type == FilterType::MaskImage) needed |= 8;
+		if (type != FilterType::Invalid && !EnsurePostprocess(needed)) return;
 
 		switch (type)
 		{
@@ -1885,7 +2076,9 @@ void RenderInterface_GL3::RenderFilters(Rml::Span<const Rml::CompiledFilterHandl
 
 Rml::LayerHandle RenderInterface_GL3::PushLayer()
 {
+	if (!frame_active || frame_failed) return {};
 	const Rml::LayerHandle layer_handle = render_layers.PushLayer();
+	if (!render_layers.IsValid()) { frame_failed = true; return {}; }
 
 	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetLayer(layer_handle).framebuffer);
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -1896,15 +2089,19 @@ Rml::LayerHandle RenderInterface_GL3::PushLayer()
 void RenderInterface_GL3::CompositeLayers(Rml::LayerHandle source_handle, Rml::LayerHandle destination_handle, Rml::BlendMode blend_mode,
 	Rml::Span<const Rml::CompiledFilterHandle> filters)
 {
+	if (!frame_active || frame_failed) return;
+	if (!render_layers.HasLayer(source_handle) || !render_layers.HasLayer(destination_handle)) return;
 	using Rml::BlendMode;
 
 	// Blit source layer to postprocessing buffer. Do this regardless of whether we actually have any filters to be
 	// applied, because we need to resolve the multi-sampled framebuffer in any case.
 	// @performance If we have BlendMode::Replace and no filters or mask then we can just blit directly to the destination.
+	if (!EnsurePostprocess(1)) return;
 	BlitLayerToPostprocessPrimary(source_handle);
 
 	// Render the filters, the PostprocessPrimary framebuffer is used for both input and output.
 	RenderFilters(filters);
+	if (frame_failed) return;
 
 	// Render to the destination layer.
 	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetLayer(destination_handle).framebuffer);
@@ -1928,12 +2125,16 @@ void RenderInterface_GL3::CompositeLayers(Rml::LayerHandle source_handle, Rml::L
 
 void RenderInterface_GL3::PopLayer()
 {
+	if (!frame_active || frame_failed) return;
+	if (!render_layers.CanPopLayer()) return;
 	render_layers.PopLayer();
 	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetTopLayer().framebuffer);
 }
 
 Rml::TextureHandle RenderInterface_GL3::SaveLayerAsTexture()
 {
+	if (!frame_active || frame_failed) return {};
+	if (!EnsurePostprocess(3)) return {};
 	RMLUI_ASSERT(scissor_state.Valid());
 	const Rml::Rectanglei bounds = scissor_state;
 
@@ -1941,6 +2142,7 @@ Rml::TextureHandle RenderInterface_GL3::SaveLayerAsTexture()
 	if (render_texture == 0)
 	{
 		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to create render texture.");
+		frame_failed = true;
 		return {};
 	}
 
@@ -1977,6 +2179,8 @@ Rml::TextureHandle RenderInterface_GL3::SaveLayerAsTexture()
 
 Rml::CompiledFilterHandle RenderInterface_GL3::SaveLayerAsMaskImage()
 {
+	if (!frame_active || frame_failed) return {};
+	if (!EnsurePostprocess(9)) return {};
 	BlitLayerToPostprocessPrimary(render_layers.GetTopLayerHandle());
 
 	const Gfx::FramebufferData& source = render_layers.GetPostprocessPrimary();
@@ -2050,8 +2254,13 @@ Rml::LayerHandle RenderInterface_GL3::RenderLayerStack::PushLayer()
 		GLuint shared_depth_stencil = (fb_layers.empty() ? 0 : fb_layers.front().depth_stencil_buffer);
 
 		fb_layers.push_back(Gfx::FramebufferData{});
-		Gfx::CreateFramebuffer(fb_layers.back(), width, height, RMLUI_NUM_MSAA_SAMPLES, Gfx::FramebufferAttachment::DepthStencil,
-			shared_depth_stencil);
+		if (!Gfx::CreateFramebuffer(fb_layers.back(), width, height, RMLUI_NUM_MSAA_SAMPLES, Gfx::FramebufferAttachment::DepthStencil,
+			shared_depth_stencil))
+		{
+			fb_layers.pop_back();
+			valid = false;
+			return {};
+		}
 	}
 
 	layers_size += 1;
@@ -2098,13 +2307,14 @@ void RenderInterface_GL3::RenderLayerStack::BeginFrame(int new_width, int new_he
 		DestroyFramebuffers();
 	}
 
+	valid = true;
 	PushLayer();
+
 }
 
 void RenderInterface_GL3::RenderLayerStack::EndFrame()
 {
-	RMLUI_ASSERT(layers_size == 1);
-	PopLayer();
+	layers_size = 0;
 }
 
 void RenderInterface_GL3::RenderLayerStack::DestroyFramebuffers()
@@ -2120,12 +2330,19 @@ void RenderInterface_GL3::RenderLayerStack::DestroyFramebuffers()
 		Gfx::DestroyFramebuffer(fb);
 }
 
+bool RenderInterface_GL3::RenderLayerStack::EnsurePostprocess(int mask)
+{
+	for (int i = 0; i < 4 && valid; ++i)
+		if (mask & (1 << i)) EnsureFramebufferPostprocess(i);
+	return valid;
+}
+
 const Gfx::FramebufferData& RenderInterface_GL3::RenderLayerStack::EnsureFramebufferPostprocess(int index)
 {
-	RMLUI_ASSERT(index < (int)fb_postprocess.size())
+	RMLUI_ASSERT(index < (int)fb_postprocess.size());
 	Gfx::FramebufferData& fb = fb_postprocess[index];
 	if (!fb.framebuffer)
-		Gfx::CreateFramebuffer(fb, width, height, 0, Gfx::FramebufferAttachment::None, 0);
+		valid = Gfx::CreateFramebuffer(fb, width, height, 0, Gfx::FramebufferAttachment::None, 0);
 	return fb;
 }
 

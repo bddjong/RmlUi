@@ -1,3 +1,7 @@
+#include "../../../Source/Core/DecoratorTiledVertical.h"
+#include <RmlUi/Core/MeshUtilities.h>
+#include <RmlUi/Core/RenderManager.h>
+#include <RmlUi/Core/Texture.h>
 #include "../Common/Mocks.h"
 #include "../Common/TestsInterface.h"
 #include "../Common/TestsShell.h"
@@ -702,7 +706,119 @@ TEST_CASE("decorator.gradients_and_shader")
 		context->Render();
 	}
 
+
+	// Exercise parsing, instancing and stop resolution through the shader interface.
+	auto check_stops = [&](const String& value, const String& shader_name, bool repeating, const Vector<float>& positions) {
+		CAPTURE(value);
+		compiled_shader_handle += 1;
+		compiled_geometry_handle += 1;
+		REQUIRE_CALL(mockRenderInterface, CompileGeometry(tl::_, tl::_)).RETURN(compiled_geometry_handle);
+		REQUIRE_CALL(mockRenderInterface, ReleaseGeometry(compiled_geometry_handle));
+		REQUIRE_CALL(mockRenderInterface, CompileShader(shader_name, tl::_))
+			.WITH(([&](const Dictionary& parameters) {
+				const auto& stops = parameters.at("color_stop_list").GetReference<ColorStopList>();
+				CHECK(parameters.at("repeating").Get<bool>() == repeating);
+				REQUIRE(stops.size() == positions.size());
+				for (size_t i = 0; i < stops.size(); ++i) {
+					CHECK(stops[i].position.unit == Unit::NUMBER);
+					CHECK(stops[i].position.number == doctest::Approx(positions[i]));
+				}
+				return true;
+			})(_2))
+			.RETURN(compiled_shader_handle);
+		REQUIRE_CALL(mockRenderInterface, RenderShader(compiled_shader_handle, compiled_geometry_handle, tl::_, TextureHandle{}));
+		REQUIRE_CALL(mockRenderInterface, ReleaseShader(compiled_shader_handle));
+		div->SetProperty("decorator", value);
+		TestsShell::RenderLoop();
+		div->SetProperty("decorator", "none");
+		context->Update();
+		context->Render();
+	};
+	for (const String& type : {String("linear"), String("radial"), String("conic")}) {
+		for (bool repeating : {false, true}) {
+			const String prefix = (repeating ? "repeating-" : "") + type + "-gradient";
+			const String shader = type + "-gradient";
+			check_stops(prefix + "(#000 0%, #f00 0%, #fff 100%)", shader, repeating, {0.f, 0.f, 1.f});
+			check_stops(prefix + "(#000 50%, #f00 50%)", shader, repeating, {0.5f, 0.5f});
+			check_stops(prefix + "(#000 50%, #f00, #fff 20%)", shader, repeating, {0.5f, 0.5f, 0.5f});
+			check_stops(prefix + "(#000 50% 50%, #f00 50%, #fff 50%)", shader, repeating, {0.5f, 0.5f, 0.5f, 0.5f});
+			check_stops(prefix + "(#000 50%, #f00 20%, #fff 100%)", shader, repeating, {0.5f, 0.5f, 1.f});
+			check_stops(prefix + "(#000 50%, #f00, #fff 20%, #000)", shader, repeating, {0.5f, 0.5f, 0.5f, 1.f});
+			check_stops(prefix + "(#000 0%, #f00 0.1%, #fff 100%)", shader, repeating, {0.f, 0.001f, 1.f});
+		}
+	}
+	check_stops("radial-gradient(circle 0px, #000 0px, #f00 0px, #fff 1px)", "radial-gradient", false, {0.f, 0.f, 1.f});
+	check_stops("repeating-linear-gradient(#000 100px, #f00, #fff 25%)", "linear-gradient", true, {0.5f, 0.5f, 0.5f});
+	check_stops("repeating-conic-gradient(#000 180deg, #f00, #fff 25%)", "conic-gradient", true, {0.5f, 0.5f, 0.5f});
+	check_stops("repeating-linear-gradient(#000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #000 50%, #fff 50%)", "linear-gradient", true, Vector<float>(17, 0.5f));
+
 	document->Close();
 
+	TestsShell::ShutdownShell();
+}
+
+TEST_CASE("decorator.tiled-vertical.geometry-and-mirroring")
+{
+	TestsRenderInterface* renderer = TestsShell::GetTestsRenderInterface();
+	if (!renderer)
+		return;
+
+	Context* context = TestsShell::GetContext();
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(
+		<rml><body><div id="target" style="position: absolute; left: 37px; top: 41px;
+			width: 32px; height: 128px; padding: 8px; border: 4px transparent;"/></body></rml>)", "assets/");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	Element* element = document->GetElementById("target");
+	REQUIRE(element);
+	RenderManager* manager = element->GetRenderManager();
+	Texture texture = manager->LoadTexture("vertical-test.png");
+
+	struct Area { BoxArea area; Vector2f origin; float width, height, cap; };
+	const Area areas[] = {
+		{BoxArea::Border, {0, 0}, 56, 152, 28},
+		{BoxArea::Padding, {4, 4}, 48, 144, 24},
+		{BoxArea::Content, {12, 12}, 32, 128, 16},
+	};
+	for (const Area& area : areas)
+	for (int missing = 0; missing < 2; ++missing)
+	for (int orientation = 0; orientation < 4; ++orientation)
+	for (bool repeat : {false, true})
+	{
+		CAPTURE(area.width);
+		CAPTURE(missing);
+		CAPTURE(orientation);
+		CAPTURE(repeat);
+		DecoratorTiled::Tile tiles[3];
+		Texture textures[3] = {texture, texture, texture};
+		textures[missing] = Texture();
+		tiles[1 - missing].orientation = static_cast<DecoratorTiled::TileOrientation>(orientation);
+		if (repeat)
+			tiles[2].fit_mode = DecoratorTiled::REPEAT_Y;
+		DecoratorTiledVertical decorator;
+		REQUIRE(decorator.Initialise(tiles, textures));
+		DecoratorDataHandle data = decorator.GenerateElementData(element, area.area);
+		REQUIRE(data);
+
+		Mesh expected;
+		for (int part = 0; part < 3; ++part)
+		{
+			const int side_orientation = (part == 1 ? 0 : orientation ^ ((part == 0 ? 0 : 1) == missing ? 2 : 0));
+			const float x0 = (side_orientation & 1) ? 1.f : 0.f;
+			const float x1 = 1.f - x0;
+			const float y0 = (side_orientation & 2) ? 1.f : 0.f;
+			const float y1 = part == 1 && repeat ? (area.height - 2 * area.cap) / area.cap : 1.f - y0;
+			const float y = part == 0 ? 0.f : (part == 1 ? area.cap : area.height - area.cap);
+			const float height = part == 1 ? area.height - 2 * area.cap : area.cap;
+			MeshUtilities::GenerateQuad(expected, area.origin + Vector2f(0, y), {area.width, height},
+				ColourbPremultiplied(255, 255, 255, 255), {x0, y0}, {x1, y1});
+		}
+		renderer->ExpectCompileGeometry({std::move(expected)});
+		decorator.RenderElement(element, data);
+		decorator.ReleaseElementData(data);
+	}
+	renderer->Reset();
+	document->Close();
 	TestsShell::ShutdownShell();
 }

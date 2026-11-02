@@ -213,13 +213,18 @@ SB_INTERNAL void SBTextGetBoundaryParagraphs(SBTextRef text,
     }
 }
 
+static SBBoolean InitializeTextContents(SBMutableTextRef text, const void *string, SBUInteger length);
+
 SBTextRef SBTextCreate(const void *string, SBUInteger length, SBStringEncoding encoding,
     SBTextConfigRef config)
 {
     SBMutableTextRef text = SBTextCreateMutable(encoding, config);
 
     if (text) {
-        SBTextAppendCodeUnits(text, string, length);
+        if (!InitializeTextContents(text, string, length)) {
+            SBTextRelease(text);
+            return NULL;
+        }
         text->isMutable = SBFalse;
     }
 
@@ -640,7 +645,7 @@ static void GenerateBidiParagraph(SBMutableTextRef text, TextParagraphRef paragr
         &codepointSequence, bidiTypes, paragraph->index, paragraph->length, text->baseLevel);
 }
 
-static void PopulateParagraphScripts(SBMutableTextRef text, TextParagraphRef paragraph)
+static SBBoolean PopulateParagraphScripts(SBMutableTextRef text, TextParagraphRef paragraph)
 {
     SBScriptLocatorRef scriptLocator;
     SBCodepointSequence codepointSequence;
@@ -653,7 +658,7 @@ static void PopulateParagraphScripts(SBMutableTextRef text, TextParagraphRef par
     codepointSequence.stringLength = paragraph->length;
 
     ListRemoveAll(&paragraph->scripts);
-    ListReserveRange(&paragraph->scripts, 0, paragraph->length);
+    if (!ListReserveRange(&paragraph->scripts, 0, paragraph->length)) return SBFalse;
 
     scriptAgent = &scriptLocator->agent;
     SBScriptLocatorLoadCodepoints(scriptLocator, &codepointSequence);
@@ -668,13 +673,14 @@ static void PopulateParagraphScripts(SBMutableTextRef text, TextParagraphRef par
             runStart += 1;
         }
     }
+    return SBTrue;
 }
 
 /**
  * Analyzes all paragraphs marked as needing reanalysis.
  * Generates bidirectional properties and script information.
  */
-static void AnalyzeDirtyParagraphs(SBMutableTextRef text)
+static SBBoolean AnalyzeDirtyParagraphs(SBMutableTextRef text)
 {
     SBUInteger paragraphCount = text->paragraphs.count;
     SBUInteger paragraphIndex;
@@ -684,11 +690,12 @@ static void AnalyzeDirtyParagraphs(SBMutableTextRef text)
 
         if (paragraph->needsReanalysis) {
             GenerateBidiParagraph(text, paragraph);
-            PopulateParagraphScripts(text, paragraph);
+            if (!paragraph->bidiParagraph || !PopulateParagraphScripts(text, paragraph)) return SBFalse;
 
             paragraph->needsReanalysis = SBFalse;
         }
     }
+    return SBTrue;
 }
 
 /**
@@ -711,6 +718,33 @@ static void FinalizeMutableText(ObjectRef object)
     if (text->attributeRegistry) {
         SBAttributeRegistryRelease(text->attributeRegistry);
     }
+}
+
+static SBBoolean InitializeTextContents(SBMutableTextRef text, const void *string, SBUInteger length)
+{
+    SBCodepointSequence sequence;
+    SBUInteger index = 0;
+    if (!length) return SBTrue;
+    if (!ListReserveRange(&text->codeUnits, 0, length)) return SBFalse;
+    memcpy(text->codeUnits.data, string, length * text->codeUnits.itemSize);
+    if (!ListReserveRange(&text->bidiTypes, 0, length)) return SBFalse;
+    DetermineChunkBidiTypes(text, 0, length);
+    sequence.stringEncoding = text->encoding;
+    sequence.stringBuffer = text->codeUnits.data;
+    sequence.stringLength = length;
+    while (index < length) {
+        SBUInteger paragraphLength, separatorLength;
+        TextParagraphRef paragraph;
+        SBCodepointSequenceGetParagraphBoundary(&sequence, text->bidiTypes.items,
+            index, length - index, &paragraphLength, &separatorLength);
+        paragraph = InsertEmptyParagraph(text, text->paragraphs.count);
+        if (!paragraph) return SBFalse;
+        paragraph->index = index;
+        paragraph->length = paragraphLength;
+        index += paragraphLength;
+    }
+    AttributeManagerReserveRange(&text->attributeManager, 0, length);
+    return AnalyzeDirtyParagraphs(text);
 }
 
 SB_INTERNAL SBMutableTextRef SBTextCreateMutableWithParameters(SBStringEncoding encoding,
@@ -738,6 +772,10 @@ SB_INTERNAL SBMutableTextRef SBTextCreateMutableWithParameters(SBStringEncoding 
         ListInitialize(&text->codeUnits, GetCodeUnitSize(encoding));
         ListInitialize(&text->bidiTypes, sizeof(SBBidiType));
         ListInitialize(&text->paragraphs, sizeof(TextParagraph));
+        if (!text->scriptLocator || (attributeRegistry && !text->attributeManager._entries.count)) {
+            SBTextRelease(text);
+            return NULL;
+        }
     }
 
     return text;
@@ -801,10 +839,11 @@ SBMutableTextRef SBTextCreateMutableCopy(SBTextRef text)
             destination->bidiParagraph = NULL;
         }
 
-        AnalyzeDirtyParagraphs(copy);
-
-        /* Copy attributes */
-        AttributeManagerCopyAttributes(&copy->attributeManager, &text->attributeManager);
+        if (!AnalyzeDirtyParagraphs(copy) ||
+            !AttributeManagerCopyAttributes(&copy->attributeManager, &text->attributeManager)) {
+            SBTextRelease(copy);
+            return NULL;
+        }
     }
 
     return copy;

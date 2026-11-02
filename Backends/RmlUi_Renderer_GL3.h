@@ -37,6 +37,7 @@ public:
 	void RenderGeometry(Rml::CompiledGeometryHandle handle, Rml::Vector2f translation, Rml::TextureHandle texture) override;
 	void ReleaseGeometry(Rml::CompiledGeometryHandle handle) override;
 
+	// On GLES 3.0 and WebGL 2, success confirms submission, not GPU allocation.
 	Rml::TextureHandle LoadTexture(Rml::Vector2i& texture_dimensions, const Rml::String& source) override;
 	Rml::TextureHandle GenerateTexture(Rml::Span<const Rml::byte> source_data, Rml::Vector2i source_dimensions) override;
 	void ReleaseTexture(Rml::TextureHandle texture_handle) override;
@@ -81,6 +82,7 @@ private:
 	int GetUniformLocation(UniformId uniform_id) const;
 	void SubmitTransformUniform(Rml::Vector2f translation);
 
+	bool EnsurePostprocess(int mask);
 	void BlitLayerToPostprocessPrimary(Rml::LayerHandle layer_handle);
 	void RenderFilters(Rml::Span<const Rml::CompiledFilterHandle> filter_handles);
 
@@ -138,15 +140,21 @@ private:
 		const Gfx::FramebufferData& GetPostprocessTertiary() { return EnsureFramebufferPostprocess(2); }
 		const Gfx::FramebufferData& GetBlendMask() { return EnsureFramebufferPostprocess(3); }
 
+		bool EnsurePostprocess(int mask);
 		void SwapPostprocessPrimarySecondary();
 
 		void BeginFrame(int new_width, int new_height);
 		void EndFrame();
+		bool IsValid() const { return valid; }
+		bool HasLayer(Rml::LayerHandle layer) const { return (size_t)layer < (size_t)layers_size; }
+		bool CanPopLayer() const { return layers_size > 1; }
+		bool IsBalanced() const { return layers_size == 1; }
 
 	private:
 		void DestroyFramebuffers();
 		const Gfx::FramebufferData& EnsureFramebufferPostprocess(int index);
 
+		bool valid = true;
 		int width = 0, height = 0;
 
 		// The number of active layers is manually tracked since we re-use the framebuffers stored in the fb_layers stack.
@@ -157,6 +165,8 @@ private:
 	};
 
 	RenderLayerStack render_layers;
+	bool frame_failed = false;
+	bool frame_active = false;
 
 	struct GLStateBackup {
 		bool enable_cull_face;
@@ -164,6 +174,11 @@ private:
 		bool enable_stencil_test;
 		bool enable_scissor_test;
 		bool enable_depth_test;
+		bool enable_framebuffer_srgb;
+		int read_framebuffer, draw_framebuffer, renderbuffer;
+		int program, vertex_array, array_buffer;
+		int texture0, texture1;
+		float blend_color[4];
 
 		int viewport[4];
 		int scissor[4];

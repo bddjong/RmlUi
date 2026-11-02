@@ -20,6 +20,7 @@ add_executable(${TARGET_NAME}
 	ElementImage.cpp
 	ElementStyle.cpp
 	EventListener.cpp
+	EventProjection.cpp
 	Filter.cpp
 	FontEffectLimits.cpp
 	FlexFormatting.cpp
@@ -58,7 +59,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
 )
 
 if(RMLUI_LUA_BINDINGS)
-	target_sources(${TARGET_NAME} PRIVATE LuaEventLifetime.cpp)
+	target_sources(${TARGET_NAME} PRIVATE LuaEventLifetime.cpp LuaElementCast.cpp LuaStyleLifetime.cpp LuaColourbRgba.cpp)
 	target_link_libraries(${TARGET_NAME} PRIVATE rmlui_lua)
 endif()
 

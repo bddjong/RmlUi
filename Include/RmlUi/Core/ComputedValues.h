@@ -368,10 +368,10 @@ namespace Style {
 		void perspective               (float value)             { rare.perspective                = value; }
 		void has_local_perspective     (bool value)              { rare.has_local_perspective      = value; }
 		void has_local_transform       (bool value)              { rare.has_local_transform        = value; }
-		void border_top_left_radius    (float value)             { rare.border_top_left_radius     = (int16_t)(std::isnan(value) ? 0.f : (value < -32768.f ? -32768.f : (value > 32767.f ? 32767.f : value))); }
-		void border_top_right_radius   (float value)             { rare.border_top_right_radius    = (int16_t)(std::isnan(value) ? 0.f : (value < -32768.f ? -32768.f : (value > 32767.f ? 32767.f : value))); }
-		void border_bottom_right_radius(float value)             { rare.border_bottom_right_radius = (int16_t)(std::isnan(value) ? 0.f : (value < -32768.f ? -32768.f : (value > 32767.f ? 32767.f : value))); }
-		void border_bottom_left_radius (float value)             { rare.border_bottom_left_radius  = (int16_t)(std::isnan(value) ? 0.f : (value < -32768.f ? -32768.f : (value > 32767.f ? 32767.f : value))); }
+		void border_top_left_radius    (float value)             { rare.border_top_left_radius     = (int16_t)(!(value > 0.f) ? 0.f : (value > 32767.f ? 32767.f : value)); }
+		void border_top_right_radius   (float value)             { rare.border_top_right_radius    = (int16_t)(!(value > 0.f) ? 0.f : (value > 32767.f ? 32767.f : value)); }
+		void border_bottom_right_radius(float value)             { rare.border_bottom_right_radius = (int16_t)(!(value > 0.f) ? 0.f : (value > 32767.f ? 32767.f : value)); }
+		void border_bottom_left_radius (float value)             { rare.border_bottom_left_radius  = (int16_t)(!(value > 0.f) ? 0.f : (value > 32767.f ? 32767.f : value)); }
 		void text_overflow             (TextOverflow value)      { rare.text_overflow              = value; }
 		void clip                      (Clip value)              { rare.clip                       = value; }
 		void drag                      (Drag value)              { rare.drag                       = value; }

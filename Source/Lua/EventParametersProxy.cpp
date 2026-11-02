@@ -40,18 +40,29 @@ int EventParametersProxy__index(lua_State* L)
 		return LuaType<EventParametersProxy>::index(L);
 }
 
+static int EventParametersProxyNext(lua_State* L)
+{
+	lua_settop(L, 2);
+	return lua_next(L, 1) ? 2 : 0;
+}
+
 int EventParametersProxy__pairs(lua_State* L)
 {
 	EventParametersProxy* obj = LuaType<EventParametersProxy>::check(L, 1);
 	RMLUI_CHECK_OBJ(obj);
-	RMLUI_CHECK_OBJ(obj->state->event);
-	lua_getglobal(L, "next");
+	lua_pushcfunction(L, EventParametersProxyNext);
 	lua_newtable(L);
-	for (const auto& parameter : obj->state->event->GetParameters())
+	if (obj->state->event)
 	{
-		lua_pushlstring(L, parameter.first.c_str(), parameter.first.size());
-		PushVariant(L, &parameter.second);
-		lua_rawset(L, -3);
+		for (const auto& parameter : obj->state->event->GetParameters())
+		{
+			lua_pushlstring(L, parameter.first.c_str(), parameter.first.size());
+			if (obj->state->event->GetId() == EventId::Tabchange && parameter.first == "tab_index" && parameter.second.GetType() == Variant::Type::INT)
+				PushIndex(L, parameter.second.Get<int>());
+			else
+				PushVariant(L, &parameter.second);
+			lua_rawset(L, -3);
+		}
 	}
 	lua_pushnil(L);
 	return 3;

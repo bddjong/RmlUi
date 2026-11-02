@@ -139,6 +139,7 @@ cbuffer SharedConstantBuffer : register(b0)
     float2 m_v;   // linear: vector to ending point, radial: 2d curvature (inverse radius), conic: angled unit vector
     float4 m_stop_colors[MAX_NUM_STOPS];
     float4 m_stop_positions[MAX_NUM_STOPS_PACKED]; // normalized, 0 -> starting point, 1 -> ending point
+    float4 m_repeat_end;
 };
 
 // Hide the way the data is packed in the cbuffer through a macro
@@ -155,11 +156,24 @@ struct PS_Input
 
 #define glsl_mod(x,y) (((x)-(y)*floor((x)/(y))))
 
+// Equally spaced stops: endpoints have half the weight of interior stops.
+float4 average_stop_colors() {
+    if (m_num_stops == 1) return m_stop_colors[0];
+    float4 color = 0.5 * (m_stop_colors[0] + m_stop_colors[m_num_stops - 1]);
+    for (int i = 1; i < m_num_stops - 1; i++)
+        color += m_stop_colors[i];
+    return color / float(m_num_stops - 1);
+}
+
 float4 lerp_stop_colors(float t) {
     float4 color = m_stop_colors[0];
 
-    for (int i = 1; i < m_num_stops; i++)
-        color = lerp(color, m_stop_colors[i], smoothstep(GET_STOP_POS(i-1), GET_STOP_POS(i), t));
+    for (int i = 1; i < m_num_stops; i++) {
+        float previous = GET_STOP_POS(i-1);
+        float current = GET_STOP_POS(i);
+        float blend = current > previous ? clamp((t - previous) / (current - previous), 0.0, 1.0) : step(current, t);
+        color = lerp(color, m_stop_colors[i], blend);
+    }
 
     return color;
 };
@@ -171,7 +185,7 @@ float4 PSMain(const PS_Input IN) : SV_TARGET
     if (m_func == LINEAR || m_func == REPEATING_LINEAR) {
         float dist_square = dot(m_v, m_v);
         float2 V = IN.uv.xy - m_p;
-        t = dot(m_v, V) / dist_square;
+        t = dist_square > 0.0 ? dot(m_v, V) / dist_square : 0.0;
     }
     else if (m_func == RADIAL || m_func == REPEATING_RADIAL) {
         float2 V = IN.uv.xy - m_p;
@@ -185,7 +199,8 @@ float4 PSMain(const PS_Input IN) : SV_TARGET
 
     if (m_func == REPEATING_LINEAR || m_func == REPEATING_RADIAL || m_func == REPEATING_CONIC) {
         float t0 = GET_STOP_POS(0);
-        float t1 = GET_STOP_POS(m_num_stops - 1);
+        float t1 = m_repeat_end.x;
+        if (t1 <= t0) { return IN.color * average_stop_colors(); }
         t = t0 + glsl_mod(t - t0, t1 - t0);
     }
 
@@ -2143,6 +2158,7 @@ struct CompiledShader {
 	ShaderGradientFunction gradient_function;
 	Rml::Vector2f p;
 	Rml::Vector2f v;
+	float repeat_end = 0.f;
 	Rml::Vector<float> stop_positions;
 	Rml::Vector<Rml::Colourf> stop_colors;
 
@@ -2156,6 +2172,22 @@ Rml::CompiledShaderHandle RenderInterface_DX11::CompileShader(const Rml::String&
 		auto it = shader_parameters.find("color_stop_list");
 		RMLUI_ASSERT(it != shader_parameters.end() && it->second.GetType() == Rml::Variant::COLORSTOPLIST);
 		const Rml::ColorStopList& color_stop_list = it->second.GetReference<Rml::ColorStopList>();
+		shader.repeat_end = color_stop_list.back().position.number;
+		// Preserve the complete stop list when averaging a degenerate repeat, even
+		// when the shader's uniform array cannot hold every stop.
+		if (Rml::Get(shader_parameters, "repeating", false) && color_stop_list.size() > MAX_NUM_STOPS &&
+			color_stop_list.front().position.number == color_stop_list.back().position.number)
+		{
+			Rml::Colourf average = ConvertToColorf(color_stop_list.front().color) * 0.5f;
+			for (size_t i = 1; i + 1 < color_stop_list.size(); ++i)
+				average += ConvertToColorf(color_stop_list[i].color);
+			average += ConvertToColorf(color_stop_list.back().color) * 0.5f;
+			average *= 1.f / float(color_stop_list.size() - 1);
+			shader.stop_positions.assign(2, color_stop_list.front().position.number);
+			shader.stop_colors.assign(2, average);
+			return;
+		}
+		// Interpolate the first 16 stops; retain the full-list endpoint for the repeat period.
 		const int num_stops = Rml::Math::Min((int)color_stop_list.size(), MAX_NUM_STOPS);
 
 		shader.stop_positions.resize(num_stops);
@@ -2244,6 +2276,7 @@ void RenderInterface_DX11::RenderShader(Rml::CompiledShaderHandle shader_handle,
 			return;
 		}
 
+		static_assert(sizeof(ShaderCbuffer::Gradient) == 432, "must match the shader constant buffer");
 		// Get a pointer to the data in the constant buffer.
 		ShaderCbuffer* dataPtr = (ShaderCbuffer*)mappedResource.pData;
 
@@ -2254,6 +2287,7 @@ void RenderInterface_DX11::RenderShader(Rml::CompiledShaderHandle shader_handle,
 		dataPtr->gradient.p = shader.p;
 		dataPtr->gradient.v = shader.v;
 		dataPtr->gradient.num_stops = num_stops;
+		dataPtr->gradient.repeat_end = {shader.repeat_end, 0.f, 0.f, 0.f};
 		// Reset stop positions and colours to 0
 		memset(dataPtr->gradient.stop_positions, 0, sizeof(dataPtr->gradient.stop_positions));
 		memset(dataPtr->gradient.stop_colors, 0, sizeof(dataPtr->gradient.stop_colors));

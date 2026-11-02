@@ -2,9 +2,58 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/TextInputHandler.h>
 #include <doctest.h>
 
 using namespace Rml;
+
+TEST_CASE("disabled select and range clear widget focus")
+{
+	Context* context = TestsShell::GetContext();
+	ElementDocument* document = context->LoadDocumentFromMemory(R"(<rml><body><select id="select"><option>One</option><option>Two</option></select><input id="range" type="range"/></body></rml>)");
+	REQUIRE(document);
+	document->Show();
+	context->Update();
+	for (const char* id : {"select", "range"})
+	{
+		Element* control = document->GetElementById(id);
+		REQUIRE(control);
+		Element* indicator = nullptr;
+		Element* select_box = nullptr;
+		for (int i = 0; i < control->GetNumChildren(true); ++i)
+		{
+			Element* child = control->GetChild(i);
+			if (child->GetTagName() == (String(id) == "select" ? "selectvalue" : "sliderbar"))
+				indicator = child;
+			if (child->GetTagName() == "selectbox")
+				select_box = child;
+		}
+		REQUIRE(indicator);
+		REQUIRE(control->Focus());
+		CHECK(indicator->IsPseudoClassSet("focus"));
+		if (select_box)
+		{
+			control->DispatchEvent("click", {});
+			CHECK(select_box->GetLocalProperty("visibility")->ToString() == "visible");
+		}
+		control->SetAttribute("disabled", "");
+		CHECK_FALSE(indicator->IsPseudoClassSet("focus"));
+		CHECK_FALSE(control->Focus());
+		if (select_box)
+		{
+			CHECK(select_box->GetLocalProperty("visibility")->ToString() == "hidden");
+			control->DispatchEvent("click", {});
+			CHECK(select_box->GetLocalProperty("visibility")->ToString() == "hidden");
+		}
+		control->RemoveAttribute("disabled");
+		REQUIRE(control->Focus());
+		CHECK(indicator->IsPseudoClassSet("focus"));
+		control->Blur();
+	}
+	document->Close();
+	TestsShell::ShutdownShell();
+}
 
 TEST_CASE("button label is removed on input type replacement")
 {

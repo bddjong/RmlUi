@@ -4,6 +4,8 @@
 #include <RmlUi/Core/Log.h>
 #include <RmlUi/Core/Platform.h>
 #include <string.h>
+#include <limits>
+#include <new>
 
 #if defined RMLUI_PLATFORM_WIN32_NATIVE
 	// function call missing argument list
@@ -606,9 +608,17 @@ bool RenderInterface_BackwardCompatible_GL3::LoadTexture(Rml::TextureHandle& tex
 		return false;
 	}
 
-	file_interface->Seek(file_handle, 0, SEEK_END);
+	if (!file_interface->Seek(file_handle, 0, SEEK_END))
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
 	size_t buffer_size = file_interface->Tell(file_handle);
-	file_interface->Seek(file_handle, 0, SEEK_SET);
+	if (!file_interface->Seek(file_handle, 0, SEEK_SET))
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
 
 	if (buffer_size <= sizeof(TGAHeader))
 	{
@@ -618,45 +628,63 @@ bool RenderInterface_BackwardCompatible_GL3::LoadTexture(Rml::TextureHandle& tex
 	}
 
 	using Rml::byte;
-	byte* buffer = new byte[buffer_size];
-	file_interface->Read(buffer, buffer_size, file_handle);
+	byte* buffer = new (std::nothrow) byte[buffer_size];
+	if (!buffer)
+	{
+		file_interface->Close(file_handle);
+		return false;
+	}
+	const size_t bytes_read = file_interface->Read(buffer, buffer_size, file_handle);
 	file_interface->Close(file_handle);
+	if (bytes_read != buffer_size)
+	{
+		delete[] buffer;
+		return false;
+	}
 
 	TGAHeader header;
 	memcpy(&header, buffer, sizeof(TGAHeader));
 
-	int color_mode = header.bitsPerPixel / 8;
-	int image_size = header.width * header.height * 4; // We always make 32bit textures
-
-	if (header.dataType != 2)
+	// TGA dimensions are little-endian, independent of host byte order.
+	const auto* header_bytes = reinterpret_cast<const unsigned char*>(buffer);
+	const size_t width = size_t(header_bytes[12]) | (size_t(header_bytes[13]) << 8);
+	const size_t height = size_t(header_bytes[14]) | (size_t(header_bytes[15]) << 8);
+	const size_t color_mode = static_cast<unsigned char>(header.bitsPerPixel) / 8;
+	const size_t data_offset = sizeof(TGAHeader) + static_cast<unsigned char>(header.idLength);
+	const size_t pixel_count = width * height;
+	const unsigned int alpha_bits = static_cast<unsigned char>(header.imageDescriptor) & 0x0f;
+	if (header.dataType != 2 || header.colourMapType != 0 || !width || !height ||
+		(header.bitsPerPixel != 24 && header.bitsPerPixel != 32) ||
+		(static_cast<unsigned char>(header.imageDescriptor) & 0xc0) != 0 ||
+		(alpha_bits != 0 && (header.bitsPerPixel != 32 || alpha_bits != 8)) ||
+		pixel_count > std::numeric_limits<size_t>::max() / 4 || data_offset > buffer_size ||
+		pixel_count > (buffer_size - data_offset) / color_mode)
 	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24/32bit uncompressed TGAs are supported.");
 		delete[] buffer;
 		return false;
 	}
-
-	// Ensure we have at least 3 colors
-	if (color_mode < 3)
+	const size_t image_size = pixel_count * 4;
+	const byte* image_src = buffer + data_offset;
+	byte* image_dest = new (std::nothrow) byte[image_size];
+	if (!image_dest)
 	{
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Only 24 and 32bit textures are supported.");
 		delete[] buffer;
 		return false;
 	}
-
-	const byte* image_src = buffer + sizeof(TGAHeader);
-	byte* image_dest = new byte[image_size];
 
 	// Targa is BGR, swap to RGB and flip Y axis
-	for (long y = 0; y < header.height; y++)
+	for (size_t y = 0; y < height; y++)
 	{
-		long read_index = y * header.width * color_mode;
-		long write_index = ((header.imageDescriptor & 32) != 0) ? read_index : (header.height - y - 1) * header.width * 4;
-		for (long x = 0; x < header.width; x++)
+		size_t read_index = y * width * color_mode;
+		const size_t row = (header.imageDescriptor & 32) ? y : height - y - 1;
+		for (size_t x = 0; x < width; x++)
 		{
+			const size_t column = (header.imageDescriptor & 16) ? width - x - 1 : x;
+			const size_t write_index = (row * width + column) * 4;
 			image_dest[write_index] = image_src[read_index + 2];
 			image_dest[write_index + 1] = image_src[read_index + 1];
 			image_dest[write_index + 2] = image_src[read_index];
-			if (color_mode == 4)
+			if (color_mode == 4 && alpha_bits == 8)
 			{
 				const int alpha = image_src[read_index + 3];
 #ifdef RMLUI_SRGB_PREMULTIPLIED_ALPHA
@@ -671,13 +699,12 @@ bool RenderInterface_BackwardCompatible_GL3::LoadTexture(Rml::TextureHandle& tex
 				image_dest[write_index + 3] = 255;
 			}
 
-			write_index += 4;
 			read_index += color_mode;
 		}
 	}
 
-	texture_dimensions.x = header.width;
-	texture_dimensions.y = header.height;
+	texture_dimensions.x = static_cast<int>(width);
+	texture_dimensions.y = static_cast<int>(height);
 
 	bool success = GenerateTexture(texture_handle, image_dest, texture_dimensions);
 
@@ -690,6 +717,10 @@ bool RenderInterface_BackwardCompatible_GL3::LoadTexture(Rml::TextureHandle& tex
 bool RenderInterface_BackwardCompatible_GL3::GenerateTexture(Rml::TextureHandle& texture_handle, const Rml::byte* source,
 	const Rml::Vector2i& source_dimensions)
 {
+	GLint max_size = 0;
+	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
+	if (source_dimensions.x <= 0 || source_dimensions.y <= 0 || source_dimensions.x > max_size || source_dimensions.y > max_size)
+		return 0;
 	GLuint texture_id = 0;
 	glGenTextures(1, &texture_id);
 	if (texture_id == 0)
@@ -698,10 +729,41 @@ bool RenderInterface_BackwardCompatible_GL3::GenerateTexture(Rml::TextureHandle&
 		return false;
 	}
 
+	GLint previous_texture = 0;
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+	GLint unpack_alignment = 0, unpack_row_length = 0, unpack_skip_rows = 0, unpack_skip_pixels = 0, unpack_buffer = 0;
+	glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack_alignment);
+	glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack_row_length);
+	glGetIntegerv(GL_UNPACK_SKIP_ROWS, &unpack_skip_rows);
+	glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &unpack_skip_pixels);
+	glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
 	glBindTexture(GL_TEXTURE_2D, texture_id);
 
 	GLint internal_format = GL_RGBA8;
 	glTexImage2D(GL_TEXTURE_2D, 0, internal_format, source_dimensions.x, source_dimensions.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, source);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, unpack_row_length);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, unpack_skip_rows);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, unpack_skip_pixels);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpack_buffer);
+// GLES 3.0 and WebGL 2 cannot query level dimensions. On those APIs, a
+	// nonzero handle means submission only; allocation failure remains in GL error state.
+#if !defined RMLUI_PLATFORM_EMSCRIPTEN && !defined __ANDROID__
+	GLint uploaded_width = 0, uploaded_height = 0;
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &uploaded_width);
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &uploaded_height);
+	if (uploaded_width != source_dimensions.x || uploaded_height != source_dimensions.y)
+	{
+		glBindTexture(GL_TEXTURE_2D, previous_texture);
+		glDeleteTextures(1, &texture_id);
+		return 0;
+	}
+#endif
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -710,7 +772,7 @@ bool RenderInterface_BackwardCompatible_GL3::GenerateTexture(Rml::TextureHandle&
 
 	texture_handle = (Rml::TextureHandle)texture_id;
 
-	glBindTexture(GL_TEXTURE_2D, 0);
+	glBindTexture(GL_TEXTURE_2D, previous_texture);
 
 	return true;
 }
