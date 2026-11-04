@@ -5,6 +5,7 @@
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/TextInputContext.h>
 #include <RmlUi/Core/TextInputHandler.h>
+#include <RmlUi/Core/Elements/ElementFormControlInput.h>
 #include <doctest.h>
 
 using namespace Rml;
@@ -203,6 +204,68 @@ TEST_CASE("form.input.text.no_font")
 	TestsShell::ShutdownShell();
 }
 
+TEST_CASE("form.input.password")
+{
+	const String document_rml = R"(<rml>
+	<head>
+		<link type="text/rcss" href="/assets/rml.rcss" />
+		<style>
+			body {
+				font-family: LatoLatin;
+				font-size: 16dp;
+				color: white;
+				width: 300dp;
+				height: 225dp;
+			}
+		</style>
+	</head>
+
+	<body>
+		<input type="password" id="password" value="aé€"/>
+	</body>
+</rml>)";
+
+	Context* context = TestsShell::GetContext();
+
+	ElementDocument* document = context->LoadDocumentFromMemory(document_rml);
+	document->Show();
+	context->Update();
+	context->Render();
+
+	auto input = rmlui_dynamic_cast<ElementFormControlInput*>(document->GetElementById("password"));
+	REQUIRE(input);
+	input->Focus();
+	context->Update();
+
+	// Each character of the value is displayed as one bullet, no matter how many bytes it takes up.
+	String selected_text;
+	input->SetSelectionRange(0, 3);
+	input->GetSelection(nullptr, nullptr, &selected_text);
+	CHECK(selected_text == "\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2");
+
+	// Text is inserted at the cursor, between the characters of the value.
+	input->SetSelectionRange(1, 1);
+	context->ProcessTextInput("ü");
+	CHECK(input->GetValue() == "aüé€");
+
+	int selection_start = -1, selection_end = -1;
+	input->GetSelection(&selection_start, &selection_end, nullptr);
+	CHECK(selection_start == 2);
+	CHECK(selection_end == 2);
+
+	// A selection deletes the characters of the value it covers.
+	input->SetSelectionRange(2, 3);
+	context->ProcessKeyDown(Input::KI_BACK, 0);
+	CHECK(input->GetValue() == "aü€");
+
+	context->ProcessKeyDown(Input::KI_END, 0);
+	context->ProcessKeyDown(Input::KI_BACK, 0);
+	CHECK(input->GetValue() == "aü");
+
+	document->Close();
+	TestsShell::ShutdownShell();
+}
+
 TEST_CASE("form.input.text.long_placeholder_mouse_click")
 {
 	const String document_rml = R"(<rml>
@@ -290,6 +353,48 @@ TEST_CASE("disabled control preserves authored focus and suppresses input")
 	CHECK_FALSE(control->GetLocalProperty("focus"));
 	context->Update();
 	CHECK(control->Focus());
+}
+
+TEST_CASE("form.input.password.maxlength")
+{
+	const String document_rml = R"(<rml>
+	<head>
+		<link type="text/rcss" href="/assets/rml.rcss" />
+		<style>
+			body {
+				font-family: LatoLatin;
+				font-size: 16dp;
+				color: white;
+				width: 300dp;
+				height: 225dp;
+			}
+		</style>
+	</head>
+
+	<body>
+		<input type="password" id="password" value="aé€x"/>
+	</body>
+</rml>)";
+
+	Context* context = TestsShell::GetContext();
+
+	ElementDocument* document = context->LoadDocumentFromMemory(document_rml);
+	document->Show();
+	context->Update();
+	context->Render();
+
+	auto input = rmlui_dynamic_cast<ElementFormControlInput*>(document->GetElementById("password"));
+	REQUIRE(input);
+
+	// Lowering the maximum length below the length of the value truncates the value itself, rather than replacing it
+	// with the displayed mask characters.
+	input->SetAttribute("maxlength", 3);
+	context->Update();
+	CHECK(input->GetValue() == "aé€");
+
+	input->SetAttribute("maxlength", 1);
+	context->Update();
+	CHECK(input->GetValue() == "a");
 	document->Close();
 	TestsShell::ShutdownShell();
 }
